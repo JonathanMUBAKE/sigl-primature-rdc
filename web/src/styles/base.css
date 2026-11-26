@@ -157,6 +157,13 @@ tr.vient-de-changer > td {
   gap: var(--espace-4);
 }
 
+.bandeau-logo {
+  height: 30px;
+  width: auto;
+  flex: none;
+  display: block;
+}
+
 .bandeau-marque {
   display: flex;
   align-items: center;
@@ -297,13 +304,15 @@ tr.vient-de-changer > td {
 }
 
 /* ------------------------------------------------------------------ */
-/* Barre latérale — claire, neutre, l'accent sur l'élément actif seul  */
+/* Barre latérale — bleu de la Primature, le fond sur lequel l'État      */
+/* pose son bloc-marque. Le blanc y lit, l'accent se fait par le voile.  */
 /* ------------------------------------------------------------------ */
 
 .laterale {
-  background: var(--fond-chrome);
-  border-right: var(--filet) solid var(--ligne);
+  background: var(--laterale-fond);
+  border-right: var(--filet) solid var(--laterale-filet);
   padding: var(--espace-4) var(--espace-3) var(--espace-6);
+  color: var(--laterale-texte);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -317,7 +326,7 @@ tr.vient-de-changer > td {
 .laterale-groupe {
   padding: var(--espace-4) var(--espace-2) var(--espace-1);
   font-size: var(--texte-xs);
-  color: var(--encre-faible);
+  color: var(--laterale-texte-faible);
   letter-spacing: var(--interlettrage-capitales);
 }
 
@@ -327,30 +336,32 @@ tr.vient-de-changer > td {
   gap: var(--espace-3);
   padding: var(--espace-2) var(--espace-2);
   font-size: var(--texte-m);
-  color: var(--encre-douce);
+  color: var(--laterale-texte);
   border-radius: var(--angle);
   text-decoration: none;
   transition: background-color var(--duree-etat) var(--courbe);
 }
 
 .laterale-lien:hover {
-  background: var(--voile-survol);
-  color: var(--encre);
+  background: var(--laterale-survol);
+  color: #FFFFFF;
   text-decoration: none;
 }
 
 .laterale-lien.est-actif {
-  background: var(--voile-accent);
-  color: var(--bleu-texte);
+  background: var(--laterale-actif);
+  color: #FFFFFF;
+  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--bleu-drapeau);
 }
 
 .laterale-lien-icone {
   flex: none;
-  color: var(--encre-faible);
+  color: var(--laterale-texte-faible);
 }
 
 .laterale-lien.est-actif .laterale-lien-icone {
-  color: var(--bleu-drapeau);
+  color: #FFFFFF;
 }
 
 .laterale-lien-libelle {
@@ -362,8 +373,8 @@ tr.vient-de-changer > td {
 .laterale-compte {
   margin-left: auto;
   font-size: var(--texte-xs);
-  background: var(--voile-actif);
-  color: var(--encre-douce);
+  background: var(--laterale-actif);
+  color: var(--laterale-texte);
   border-radius: var(--angle);
   padding: 0 var(--espace-1);
   font-variant-numeric: tabular-nums;

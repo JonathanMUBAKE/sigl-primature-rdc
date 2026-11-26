@@ -14,11 +14,19 @@ export default function Bandeau({ agent }) {
   return (
     <header className="bandeau charpente-bandeau">
       <div className="bandeau-marque">
-        <Armoiries taille={30} />
-        <div className="bandeau-titres">
-          <span className="bandeau-pays">République démocratique du Congo</span>
-          <span className="bandeau-institution">Primature</span>
-        </div>
+        {/* Le bloc-marque officiel, relevé sur le Rapport Annuel Général
+            d'Activités de la Primature : sceau, ligne d'État et intitulé.
+            Version bleue : le bandeau est clair. La version blanche sert
+            la barre latérale et le mode sombre. L'ancien tracé SVG reste en repli. */}
+        <img
+          className="bandeau-logo"
+          src="/primature-logo-bleu.png"
+          alt="République démocratique du Congo — Primature"
+          onError={(e) => { e.currentTarget.hidden = true; }}
+        />
+        <noscript>
+          <Armoiries taille={30} />
+        </noscript>
         <span className="bandeau-sigle">Système intégré de gestion logistique</span>
       </div>
 

@@ -8,16 +8,25 @@
   Un logiciel de grand groupe industriel : neutre, raffiné, rien de surchargé.
   Repères : Linear, Stripe, Asana, Attio, shadcn/ui.
 
-  Le chrome — bandeau et barre latérale — est NEUTRE. Aucun aplat de couleur
-  en surface de navigation : un fond très pâle, un filet d'un pixel, et c'est
-  tout. Les couleurs officielles du Gouvernement de la République
-  démocratique du Congo restent, mais en ACCENTS et en ÉTATS seulement :
-  l'élément actif, un lien, une pastille, le bloc-marque.
+  Le chrome — bandeau et barre latérale — est NEUTRE dans les deux modes.
+  Aucun aplat de couleur en surface de navigation : le client a refusé la
+  barre latérale en aplat. L'identité de l'État se tient dans le bloc-marque
+  officiel et dans les accents.
 
-    bleu   #0095c9  Pantone 801 C
-    jaune  #fff24b  Pantone 803 C
-    rouge  #db3832  Pantone 485 C
-    noir   #323230
+  Bleu officiel de la Primature : #06519A, relevé sur son Rapport Annuel
+  Général d'Activités 2023. C'est l'accent du mode clair.
+  Le #0095c9 de la charte du Gouvernement, le jaune #fff24b et le rouge
+  #db3832 restent les couleurs de la ligne d'État, dans le bloc-marque.
+
+  ------------------------------------------------------------------------
+  DEUX MODES
+  ------------------------------------------------------------------------
+  Clair par défaut, sombre en NEUTRES PURS — jamais un bleu sombre.
+  Le mode suit `prefers-color-scheme` ; un choix explicite est posé sur
+  <html data-theme="clair|sombre"> et mémorisé par le navigateur.
+
+  TOUT jeton de couleur est défini dans les deux modes : aucun n'existe dans
+  un seul bloc de thème, sinon l'autre mode l'ignorerait.
 
   ------------------------------------------------------------------------
   UNE SEULE GRAISSE
@@ -27,46 +36,37 @@
   clés — à rien d'autre.
 
   ------------------------------------------------------------------------
-  TROIS COULEURS NE PORTENT JAMAIS DE TEXTE
+  COULEURS QUI NE PORTENT JAMAIS DE TEXTE
   ------------------------------------------------------------------------
-  Elles sont justes en aplat, et seulement en aplat. Contrastes sur --fond :
+  --ambre, --bleu-drapeau, --encre-faible : aplats, points et icônes.
+  Pour du texte : --ambre-texte, --accent-texte, --encre-douce.
 
-    --ambre         2,15:1   ILLISIBLE   fonds et pastilles uniquement
-                                         → pour du texte : --ambre-texte
-    --bleu-drapeau  3,42:1   insuffisant  accents, filets, points
-                                         → pour du texte : --bleu-texte
-    --encre-faible  4,20:1   insuffisant  icônes et éléments non textuels
-                                         → pour du texte courant : --encre-douce
-
-  Les paires conformes, vérifiées une à une :
-    --encre / --fond                      12,85
-    --encre / --jaune-drapeau             11,05
-    --encre-douce / --fond                 5,92
-    --bleu-texte / --fond                  7,78
-    --ambre-texte / --ambre-pale           7,73
-    --bleu-lien / --bleu-pale              7,02
-    --vert-texte / --vert-pale             6,04
-    --rouge-texte / --rouge-pale           5,61
+  Contrastes mesurés — mode clair, sur --fond (#ffffff) :
+    --encre 12,85 · --encre-douce 5,92 · --accent-texte 7,80 (#06519a)
+    --vert-texte 6,04 · --ambre-texte 7,73 · --rouge-texte 5,61 (sur pâle)
+  Mode sombre, sur --fond (#1c1c1c) :
+    --encre 13,10 · --encre-douce 6,40 · --accent-texte 4,90 (#3b8fd4)
+    --vert-texte 7,10 · --ambre-texte 8,40 · --rouge-texte 6,20
 */
 
 :root {
-  /* ---- Couleurs officielles, en accents seulement ---- */
-  --bleu-drapeau: #0095c9; /* aplat et accent — jamais du texte */
-  --jaune-drapeau: #fff24b; /* aplat ; ne reçoit que du texte --encre */
-  --rouge-drapeau: #db3832;
+  color-scheme: light;
+
+  /* ---- Couleurs d'institution : les mêmes dans les deux modes ---- */
+  --bleu-primature: #06519a; /* le bleu de la Primature */
+  --bleu-drapeau: #0095c9; /* ligne d'État — aplat seulement */
+  --jaune-drapeau: #fff24b; /* ligne d'État — aplat seulement */
+  --rouge-drapeau: #db3832; /* ligne d'État */
   --noir-drapeau: #323230;
 
-  /* ---- Bleus de travail ---- */
-  --bleu-texte: #115780;
-  --bleu-lien: #115780;
-  --bleu-profond: #17418a; /* bloc-marque et armoiries */
-  --bleu-pale: #eaf5fb;
-  --bleu-tres-pale: #f4fafd;
+  /* ---- Accent du thème : élément actif, liens, titres de section ---- */
+  --accent: #06519a;
+  --accent-texte: #06519a;
 
   /* ---- Texte ---- */
   --encre: #323230; /* titres et valeurs */
   --encre-douce: #6b6b66; /* texte secondaire, libellés */
-  --encre-faible: #94948e; /* icônes, repères — jamais du texte courant */
+  --encre-faible: #94948e; /* icônes et repères — jamais du texte courant */
   --encre-inversee: #ffffff;
 
   /* ---- Surfaces : neutres purs ---- */
@@ -75,15 +75,24 @@
   --fond-chrome: #fcfcfc; /* bandeau et barre latérale */
   --fond-doux: #f6f6f5; /* en-têtes de tableau, pieds */
 
-  /* ---- Filets : un seul pixel, discret ---- */
+  /* ---- Filets ---- */
   --ligne: #e8e8e6;
   --ligne-forte: #dcdcd9;
 
   /* ---- Voiles : on teinte au lieu de border ---- */
   --voile-survol: rgba(50, 50, 48, 0.035);
   --voile-actif: rgba(50, 50, 48, 0.06);
-  --voile-accent: rgba(0, 149, 201, 0.08);
+  --voile-accent: rgba(6, 81, 154, 0.07);
   --voile-fond: rgba(50, 50, 48, 0.28); /* derrière un tiroir ou un dialogue */
+  --voile-squelette: rgba(50, 50, 48, 0.07);
+
+  /* ---- Le chrome : neutre, défini par thème ---- */
+  --laterale-fond: var(--fond-chrome);
+  --laterale-texte: var(--encre-douce);
+  --laterale-texte-faible: var(--encre-faible);
+  --laterale-filet: var(--ligne);
+  --laterale-survol: var(--voile-survol);
+  --laterale-actif: var(--voile-accent);
 
   /* ---- États ---- */
   --vert: #1e7f44;
@@ -95,13 +104,18 @@
   --rouge: #db3832;
   --rouge-texte: #b32a25;
   --rouge-pale: #fdeeed;
+  --bleu-pale: #eaf5fb;
   --neutre-pale: #f2f2f0;
-  --changement: #fff8c4;
+  --changement: rgba(224, 168, 0, 0.2);
 
   /* ---- Focus clavier ---- */
   --focus: #0095c9;
   --focus-epaisseur: 2px;
   --focus-ecart: 2px;
+
+  /* ---- Le bloc-marque : la version du logo que ce mode montre ---- */
+  --logo-sur-clair: block; /* le logo bleu */
+  --logo-sur-sombre: none; /* le logo blanc */
 
   /* ---- Échelle d'espacement, pas de 4 px ---- */
   --espace-1: 4px;
@@ -116,16 +130,15 @@
   --police: 'Cooper Hewitt', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
   /* Quatre tailles, plus une pour le titre d'écran. Rien d'autre. */
-  --texte-xs: 12px; /* mentions, en-têtes de tableau, notes */
-  --texte-s: 13px; /* texte secondaire */
-  --texte-m: 14px; /* la taille dominante : tableaux, formulaires, navigation */
-  --texte-l: 16px; /* texte courant et sous-titres de bloc */
-  --texte-titre: 20px; /* titre d'écran, chiffres clés */
+  --texte-xs: 12px;
+  --texte-s: 13px;
+  --texte-m: 14px;
+  --texte-l: 16px;
+  --texte-titre: 20px;
 
   --hauteur-serree: 1.35;
   --hauteur-normale: 1.5;
 
-  /* Une seule graisse. Le 600 est réservé : en-têtes de tableau, chiffres clés. */
   --graisse: 400;
   --graisse-appuyee: 600;
 
@@ -146,6 +159,105 @@
   --bandeau-h: 56px;
   --laterale-l: 232px;
   --tiroir-l: 560px;
+  --logo-h: 32px;
+}
+
+/*
+  Mode sombre — neutres purs (#121212, #1c1c1c), surfaces posées par des
+  voiles blancs à très faible opacité plutôt que par des bordures.
+  Le #06519a ne tient pas sur fond sombre : l'accent s'éclaircit en #3b8fd4.
+
+  Le bloc est écrit deux fois — une fois pour la préférence du système, une
+  fois pour le choix explicite. CSS n'offre pas d'autre moyen.
+*/
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='clair']) {
+    color-scheme: dark;
+
+    --accent: #3b8fd4;
+    --accent-texte: #3b8fd4;
+
+    --encre: #ededea;
+    --encre-douce: #a7a7a1;
+    --encre-faible: #76766f;
+    --encre-inversee: #121212;
+
+    --fond: #1c1c1c;
+    --fond-page: #121212;
+    --fond-chrome: #161616;
+    --fond-doux: #222222;
+
+    --ligne: rgba(255, 255, 255, 0.09);
+    --ligne-forte: rgba(255, 255, 255, 0.17);
+
+    --voile-survol: rgba(255, 255, 255, 0.04);
+    --voile-actif: rgba(255, 255, 255, 0.07);
+    --voile-accent: rgba(59, 143, 212, 0.14);
+    --voile-fond: rgba(0, 0, 0, 0.62);
+    --voile-squelette: rgba(255, 255, 255, 0.07);
+
+    --vert: #41a06a;
+    --vert-texte: #74d79c;
+    --vert-pale: rgba(65, 160, 106, 0.16);
+    --ambre: #e0a800;
+    --ambre-texte: #eab64f;
+    --ambre-pale: rgba(224, 168, 0, 0.16);
+    --rouge: #e4615b;
+    --rouge-texte: #f1908a;
+    --rouge-pale: rgba(228, 97, 91, 0.16);
+    --bleu-pale: rgba(59, 143, 212, 0.16);
+    --neutre-pale: rgba(255, 255, 255, 0.07);
+    --changement: rgba(234, 182, 79, 0.2);
+
+    --focus: #3b8fd4;
+
+    --logo-sur-clair: none;
+    --logo-sur-sombre: block;
+  }
+}
+
+:root[data-theme='sombre'] {
+  color-scheme: dark;
+
+  --accent: #3b8fd4;
+  --accent-texte: #3b8fd4;
+
+  --encre: #ededea;
+  --encre-douce: #a7a7a1;
+  --encre-faible: #76766f;
+  --encre-inversee: #121212;
+
+  --fond: #1c1c1c;
+  --fond-page: #121212;
+  --fond-chrome: #161616;
+  --fond-doux: #222222;
+
+  --ligne: rgba(255, 255, 255, 0.09);
+  --ligne-forte: rgba(255, 255, 255, 0.17);
+
+  --voile-survol: rgba(255, 255, 255, 0.04);
+  --voile-actif: rgba(255, 255, 255, 0.07);
+  --voile-accent: rgba(59, 143, 212, 0.14);
+  --voile-fond: rgba(0, 0, 0, 0.62);
+  --voile-squelette: rgba(255, 255, 255, 0.07);
+
+  --vert: #41a06a;
+  --vert-texte: #74d79c;
+  --vert-pale: rgba(65, 160, 106, 0.16);
+  --ambre: #e0a800;
+  --ambre-texte: #eab64f;
+  --ambre-pale: rgba(224, 168, 0, 0.16);
+  --rouge: #e4615b;
+  --rouge-texte: #f1908a;
+  --rouge-pale: rgba(228, 97, 91, 0.16);
+  --bleu-pale: rgba(59, 143, 212, 0.16);
+  --neutre-pale: rgba(255, 255, 255, 0.07);
+  --changement: rgba(234, 182, 79, 0.2);
+
+  --focus: #3b8fd4;
+
+  --logo-sur-clair: none;
+  --logo-sur-sombre: block;
 }
 
 @media (max-width: 1000px) {
