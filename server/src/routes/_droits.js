@@ -61,9 +61,27 @@ async function chargerAgentEnContexte(identifiant) {
   };
 }
 
-/** Le hook posé une fois pour toutes dans app.js : l'identité de la requête. */
+/** Le hook posé une fois pour toutes dans app.js : l'identité de la requête.
+ *
+ *  L'en-tête `X-Agent-Id` est la voie normale. Mais `EventSource`, qui porte
+ *  le flux temps réel, ne sait pas poser d'en-tête : le navigateur ne lui en
+ *  donne pas le moyen. Le flux accepte donc l'agent en paramètre d'adresse.
+ *
+ *  Ce repli est **réservé au flux**, et il ne relâche aucun droit : l'agent
+ *  ainsi désigné subit exactement les mêmes gardes et le même filtrage par
+ *  structure. Il rend seulement lisible dans l'adresse ce qui serait sinon
+ *  dans l'en-tête — ce qui, le jour où l'authentification réelle arrivera,
+ *  devra passer par un jeton à usage unique plutôt que par un identifiant.
+ */
 export async function identifier(request) {
-  request.agent = await chargerAgent(request.headers['x-agent-id']);
+  const enTete = request.headers['x-agent-id'];
+  let parAdresse;
+  if (!enTete && typeof request.url === 'string' && request.url.startsWith('/api/flux')) {
+    // `request.query` n'est pas encore peuplé au stade du hook : on lit l'adresse.
+    const q = request.url.indexOf('?');
+    if (q !== -1) parAdresse = new URLSearchParams(request.url.slice(q + 1)).get('agent');
+  }
+  request.agent = await chargerAgent(enTete || parAdresse || undefined);
 }
 
 // --- Les gardes ------------------------------------------------------------

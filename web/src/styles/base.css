@@ -869,10 +869,15 @@ tr.vient-de-changer > td {
   margin-bottom: var(--espace-4);
 }
 
+/* Aucun outil ne pousse la page : à l'étroit, ils se replient et rétrécissent. */
+.barre-outils > * {
+  min-width: 0;
+}
+
 .recherche {
   position: relative;
-  flex: 1 1 280px;
-  min-width: 220px;
+  flex: 1 1 260px;
+  min-width: 180px;
 }
 
 .recherche-icone {
@@ -918,7 +923,8 @@ tr.vient-de-changer > td {
   border-radius: var(--angle);
   background: var(--fond);
   color: var(--encre);
-  min-width: 150px;
+  min-width: 130px;
+  max-width: 100%;
 }
 
 .compte-resultats {

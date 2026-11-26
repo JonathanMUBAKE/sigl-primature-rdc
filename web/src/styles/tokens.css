@@ -87,12 +87,20 @@
   --voile-squelette: rgba(50, 50, 48, 0.07);
 
   /* ---- Le chrome : neutre, défini par thème ---- */
-  --laterale-fond: var(--fond-chrome);
-  --laterale-texte: var(--encre-douce);
-  --laterale-texte-faible: var(--encre-faible);
-  --laterale-filet: var(--ligne);
-  --laterale-survol: var(--voile-survol);
-  --laterale-actif: var(--voile-accent);
+  /* La barre latérale porte le bleu de la Primature. Décision du client,
+     prise écran en main : le bloc-marque de l'institution est dessiné pour
+     un fond bleu, et c'est là que l'identité de l'État se tient.
+     À ne pas confondre avec le chrome bleu nuit à angles durs, qui lui a
+     été refusé : ici la couleur est celle de l'institution, les angles
+     restent doux et le reste de l'écran reste clair.
+     En mode sombre, la barre suit les neutres — voir le bloc du thème. */
+  --laterale-fond: var(--bleu-primature);
+  --laterale-texte: #E8EFF7;
+  --laterale-texte-faible: #A9C2DC;
+  --laterale-filet: rgba(255, 255, 255, 0.10);
+  --laterale-survol: rgba(255, 255, 255, 0.07);
+  --laterale-actif: rgba(255, 255, 255, 0.14);
+  --logo-laterale: url('/primature-logo-blanc.png');
 
   /* ---- États ---- */
   --vert: #1e7f44;
