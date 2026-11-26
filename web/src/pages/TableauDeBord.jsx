@@ -177,7 +177,7 @@ export default function TableauDeBord() {
               {
                 cle: 'anciennete_jours',
                 titre: 'Depuis',
-                largeur: '12%',
+                largeur: '104px',
                 nombre: true,
                 valeur: (l) => Number(l.anciennete_jours ?? 0),
                 rendu: (l) => jours(l.anciennete_jours),

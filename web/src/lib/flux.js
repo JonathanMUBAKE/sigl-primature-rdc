@@ -34,11 +34,20 @@ const SUJETS = [
 const auditeurs = new Set() // (evenement) => void
 const veilleursDeLiaison = new Set() // (etat) => void
 
+// Au-delà de ce nombre d'échecs d'affilée, on cesse d'appeler : si le
+// serveur refuse la liaison — il lit l'agent dans un en-tête, et EventSource
+// ne sait pas en poser —, insister ne la fera pas aboutir et noierait le
+// journal du serveur. La reprise se fait au retour de l'onglet, au retour du
+// réseau, ou sur un changement d'agent.
+const ESSAIS_MAXIMUM = 4
+
 let source = null
 let etatLiaison = LIAISON_EN_ATTENTE
 let essais = 0
 let minuterie = null
 let agentDeLaLiaison = null
+let ouvertureEnCours = false
+let abandonnee = false
 
 function direEtat(prochain) {
   if (etatLiaison === prochain) return
@@ -76,7 +85,12 @@ function lireCharge(message, nomDeLEvenement) {
 }
 
 function programmerUneReprise() {
-  if (minuterie) return
+  if (minuterie || abandonnee) return
+  if (essais >= ESSAIS_MAXIMUM) {
+    abandonnee = true
+    direEtat(LIAISON_ROMPUE)
+    return
+  }
   const attente = Math.min(1000 * 2 ** essais, 15000)
   essais += 1
   minuterie = setTimeout(() => {
@@ -90,7 +104,8 @@ function ouvrir() {
     direEtat(LIAISON_ROMPUE)
     return
   }
-  if (source) return
+  if (source || ouvertureEnCours || abandonnee) return
+  ouvertureEnCours = true
 
   const agent = agentCourant()
   agentDeLaLiaison = agent?.id ?? null
@@ -103,6 +118,7 @@ function ouvrir() {
 
   source.onopen = () => {
     essais = 0
+    ouvertureEnCours = false
     direEtat(LIAISON_OUVERTE)
   }
 
@@ -118,6 +134,7 @@ function ouvrir() {
     if (source && source.readyState === EventSource.CLOSED) {
       source.close()
       source = null
+      ouvertureEnCours = false
       direEtat(LIAISON_ROMPUE)
       programmerUneReprise()
     } else {
@@ -135,6 +152,7 @@ function fermer() {
     source.close()
     source = null
   }
+  ouvertureEnCours = false
   direEtat(LIAISON_EN_ATTENTE)
 }
 
@@ -143,11 +161,13 @@ function reprendreSiBesoin() {
   if ((agent?.id ?? null) !== agentDeLaLiaison) {
     fermer()
     essais = 0
+    abandonnee = false
     ouvrir()
     return
   }
   if (etatLiaison === LIAISON_ROMPUE) {
     essais = 0
+    abandonnee = false
     if (minuterie) {
       clearTimeout(minuterie)
       minuterie = null
@@ -183,6 +203,7 @@ function sabonner(auditeur) {
 export function relancerLeFlux() {
   fermer()
   essais = 0
+  abandonnee = false
   if (auditeurs.size > 0 || veilleursDeLiaison.size > 0) ouvrir()
 }
 

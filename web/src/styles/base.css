@@ -158,10 +158,18 @@ tr.vient-de-changer > td {
 }
 
 .bandeau-logo {
-  height: 30px;
+  height: var(--logo-h);
   width: auto;
   flex: none;
-  display: block;
+}
+
+/* C'est le thème qui choisit la version du bloc-marque, pas le JavaScript. */
+.logo-sur-clair {
+  display: var(--logo-sur-clair);
+}
+
+.logo-sur-sombre {
+  display: var(--logo-sur-sombre);
 }
 
 .bandeau-marque {
@@ -563,7 +571,9 @@ tr.vient-de-changer > td {
   background: var(--fond);
   border: var(--filet) solid var(--ligne);
   border-radius: var(--angle-carte);
-  overflow: hidden;
+  /* `clip` et non `hidden` : `hidden` ferait de l'enveloppe une zone de
+     défilement, et l'en-tête collant n'aurait plus rien à quoi se tenir. */
+  overflow: clip;
 }
 
 /* Dans un bloc bento, le tableau n'a pas son propre cadre */
@@ -574,6 +584,7 @@ tr.vient-de-changer > td {
 
 .tableau-defilement {
   overflow-x: auto;
+  overflow-y: clip;
 }
 
 .tableau {
@@ -583,7 +594,18 @@ tr.vient-de-changer > td {
   table-layout: auto;
 }
 
+/* Dès qu'une colonne annonce sa largeur, le tableau la tient : les cellules
+   sont coupées proprement, et rien ne déborde du bloc qui les porte. */
+.tableau.est-fixe {
+  table-layout: fixed;
+}
+
 .tableau thead th {
+  /* L'en-tête reste lisible quand la liste est longue : on ne perd jamais
+     le nom de la colonne qu'on est en train de lire. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--fond-doux);
   color: var(--encre-douce);
   text-align: left;
@@ -1027,16 +1049,64 @@ a.chiffre:hover {
   padding: 0 var(--espace-2);
 }
 
+/* Des squelettes, pas une roue qui tourne : la page garde sa forme, et
+   rien ne saute quand les données arrivent. */
 .chargement {
-  display: flex;
-  align-items: center;
-  gap: var(--espace-3);
-  font-size: var(--texte-s);
-  color: var(--encre-douce);
-  padding: var(--espace-6) var(--espace-5);
   border: var(--filet) solid var(--ligne);
   border-radius: var(--angle-carte);
   background: var(--fond);
+  padding: var(--espace-4) var(--espace-5);
+}
+
+.chargement-dit {
+  font-size: var(--texte-s);
+  color: var(--encre-douce);
+  margin-bottom: var(--espace-4);
+}
+
+.squelette {
+  height: 10px;
+  border-radius: var(--angle);
+  background: var(--voile-squelette);
+  animation: respire 1.4s var(--courbe) infinite;
+}
+
+.squelette-ligne {
+  display: flex;
+  align-items: center;
+  gap: var(--espace-4);
+  padding: var(--espace-3) 0;
+  border-bottom: var(--filet) solid var(--ligne);
+}
+
+.squelette-ligne:last-child {
+  border-bottom: none;
+}
+
+.squelette-ligne .squelette:nth-child(1) {
+  flex: 3;
+}
+.squelette-ligne .squelette:nth-child(2) {
+  flex: 2;
+}
+.squelette-ligne .squelette:nth-child(3) {
+  flex: 1;
+}
+
+@keyframes respire {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .squelette {
+    animation: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,32 +1,40 @@
 import { Link } from 'react-router-dom'
 import { UserCog } from 'lucide-react'
-import Armoiries from './Armoiries.jsx'
 import Liaison from './Liaison.jsx'
+import Theme from './Theme.jsx'
 import { libelle } from '../lib/format.js'
 
 /*
   Bandeau clair, séparé du contenu par un filet d'un pixel — pas par un aplat.
-  À gauche le bloc-marque : les armoiries, « République démocratique du Congo »,
-  « Primature ». C'est là que se tient l'identité de l'État, pas dans une
-  surface de navigation colorée. À droite l'agent courant.
+
+  À gauche le bloc-marque OFFICIEL de la Primature, relevé sur son Rapport
+  Annuel Général d'Activités 2023 : le sceau « République Démocratique du
+  Congo / Le Gouvernement », la ligne d'État tricolore et « PRIMATURE ».
+  Deux fichiers, un par mode : le bleu sur surface claire, le blanc sur
+  surface sombre. C'est la feuille de style qui choisit, par les jetons
+  --logo-sur-clair et --logo-sur-sombre : aucun calcul de thème ici.
+
+  À droite l'agent courant, l'état de la liaison et le mode d'affichage.
 */
 export default function Bandeau({ agent }) {
   return (
     <header className="bandeau charpente-bandeau">
       <div className="bandeau-marque">
-        {/* Le bloc-marque officiel, relevé sur le Rapport Annuel Général
-            d'Activités de la Primature : sceau, ligne d'État et intitulé.
-            Version bleue : le bandeau est clair. La version blanche sert
-            la barre latérale et le mode sombre. L'ancien tracé SVG reste en repli. */}
         <img
-          className="bandeau-logo"
+          className="bandeau-logo logo-sur-clair"
           src="/primature-logo-bleu.png"
+          width="1200"
+          height="483"
           alt="République démocratique du Congo — Primature"
-          onError={(e) => { e.currentTarget.hidden = true; }}
         />
-        <noscript>
-          <Armoiries taille={30} />
-        </noscript>
+        <img
+          className="bandeau-logo logo-sur-sombre"
+          src="/primature-logo-blanc.png"
+          width="1200"
+          height="483"
+          alt=""
+          aria-hidden="true"
+        />
         <span className="bandeau-sigle">Système intégré de gestion logistique</span>
       </div>
 
@@ -43,6 +51,7 @@ export default function Bandeau({ agent }) {
             </div>
           ) : null}
         </div>
+        <Theme />
         <Link className="bandeau-action" to="/profil" title="Changer d'agent courant">
           <UserCog size={15} aria-hidden="true" />
           Changer

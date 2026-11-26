@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Loader, Inbox, TriangleAlert } from 'lucide-react'
+import { Inbox, TriangleAlert } from 'lucide-react'
 import Bouton from './Bouton.jsx'
 
 /*
@@ -16,12 +16,22 @@ export default function Vide({ titre = 'Aucun élément', texte, action }) {
   )
 }
 
-/** L'attente, dite franchement. */
-export function Chargement({ texte = 'Chargement…' }) {
+/**
+ * L'attente, dite franchement — et montrée par un squelette, pas par une
+ * roue qui tourne : la page garde sa forme, et rien ne saute quand les
+ * données arrivent.
+ */
+export function Chargement({ texte = 'Chargement…', lignes = 4 }) {
   return (
-    <div className="chargement" role="status" aria-live="polite">
-      <Loader size={16} aria-hidden="true" />
-      {texte}
+    <div className="chargement" role="status" aria-live="polite" aria-busy="true">
+      <div className="chargement-dit">{texte}</div>
+      {Array.from({ length: lignes }, (_, i) => (
+        <div className="squelette-ligne" key={i} aria-hidden="true">
+          <span className="squelette" />
+          <span className="squelette" />
+          <span className="squelette" />
+        </div>
+      ))}
     </div>
   )
 }
