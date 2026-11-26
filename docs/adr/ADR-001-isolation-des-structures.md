@@ -281,3 +281,49 @@ La décision d'architecture était la bonne — l'isolation tenue par la base va
 tenue par la discipline. Mais j'avais vérifié la disponibilité du mécanisme sans vérifier son
 efficacité réelle sous le rôle qui l'exécute. Constater qu'une fonctionnalité existe n'est pas
 constater qu'elle protège.
+
+---
+
+## Vérification des garanties d'extraction — 27 novembre 2026
+
+L'ADR posait trois contraintes de modélisation pour qu'un établissement autonome puisse un jour
+partir sur sa propre base sans réécriture. Personne ne les avait vérifiées sur le schéma réel. Voici
+le résultat, interrogé dans la base.
+
+**Garantie 2 — les identifiants sont des UUID : tenue.** Aucune colonne `id` d'un autre type,
+aucune colonne `serial` ni `identity` dans tout le schéma. Deux bases séparées ne se télescoperont
+pas à la réunion.
+
+**Garantie 1 — le référentiel partagé passe par des codes stables : tenue.** Les tables comptables
+référencent la nomenclature par `categorie_code`, un code lisible, et non par un identifiant
+technique. `bien`, `ligne_besoin` et `stock` suivent toutes cette règle.
+
+**Garantie 3 — rien ne suppose une base unique : tenue pour le schéma**, mais la vérification a
+révélé un cas que l'ADR n'avait pas prévu, et qui mérite d'être nommé.
+
+### Ce que la vérification a trouvé en plus
+
+Les tables comptables portent des clés étrangères vers `agent` et `site`, et `mouvement` en porte
+deux de plus : `detenteur_source` et `detenteur_cible`. Or **un transfert de bien entre structures
+franchit la frontière par construction** : une ligne de `mouvement` qui enregistre le passage d'un
+véhicule de la Primature vers un établissement autonome référence nécessairement un agent de chaque
+côté.
+
+Ce n'est pas une violation de la contrainte, c'est une réalité du métier : un transfert est
+précisément ce qui relie deux périmètres. Mais cela veut dire qu'une extraction ne se fera pas par
+une simple copie de lignes.
+
+**La règle à retenir le jour venu**, écrite ici pour ne pas la redécouvrir sous pression : les
+mouvements historiques qui franchissent la frontière se dupliquent des deux côtés, chacun gardant sa
+vue de l'opération, avec une référence croisée par les numéros de documents — qui sont des chaînes
+lisibles et stables — plutôt que par les identifiants techniques. L'un voit une sortie, l'autre une
+entrée, et le document fait le lien.
+
+### Le point d'action 5, autrement
+
+L'ADR demandait d'isoler la consolidation dans `server/src/consolidation.js`. L'implémentation l'a
+placée dans `server/src/routes/_sql.js`, qui expose `transaction` pour le métier et `consolidation`
+pour la lecture d'ensemble. Créer un second module ne ferait que dupliquer le raccord.
+
+**Le point d'action est donc tenu, à l'emplacement près** : `routes/_sql.js` est le seul endroit à
+reprendre si un établissement passe sur sa propre instance. Il est nommé ici pour qu'on le retrouve.
