@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Page from '../components/Page.jsx'
 import Tableau from '../components/Tableau.jsx'
 import Pastille from '../components/Pastille.jsx'
 import Recherche from '../components/Recherche.jsx'
 import Filtres, { Filtre } from '../components/Filtres.jsx'
 import { Etat } from '../components/Vide.jsx'
+import FicheBien from './Bien.jsx'
 import api from '../lib/api.js'
 import { useRequete, depouillerListe } from '../lib/requete.js'
 import { useMarquage, useRafraichissementVivant } from '../lib/flux.js'
@@ -21,6 +22,7 @@ const CLASSEMENTS = ['immobilisation', 'stock']
 export default function Patrimoine() {
   const [params, setParams] = useSearchParams()
   const navigue = useNavigate()
+  const { id: bienOuvert } = useParams()
 
   const q = params.get('q') ?? ''
   const etat = params.get('etat') ?? ''
@@ -127,7 +129,8 @@ export default function Patrimoine() {
           colonnes={colonnes}
           lignes={lignes}
           nomDesLignes="bien"
-          surClic={(b) => navigue(`/patrimoine/${b.id}`)}
+          surClic={(b) => navigue(`/patrimoine/${b.id}${window.location.search}`)}
+          ligneChoisie={(b) => b.id === bienOuvert}
           ligneSignalee={(b) => b.etat === 'hors_service' || b.etat === 'perdu'}
           ligneMarquee={(b) => estMarque(b.id)}
           titreVide="Aucun bien ne correspond"
@@ -139,6 +142,13 @@ export default function Patrimoine() {
           pied={`${nombre(lignes.length)} bien(s) affiché(s) sur ${nombre(total)} au registre`}
         />
       </Etat>
+
+      {bienOuvert ? (
+        <FicheBien
+          id={bienOuvert}
+          surFermeture={() => navigue(`/patrimoine${window.location.search}`)}
+        />
+      ) : null}
     </Page>
   )
 }

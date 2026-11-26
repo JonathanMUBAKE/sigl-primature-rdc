@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FilePlus2 } from 'lucide-react'
 import Page from '../components/Page.jsx'
 import Tableau from '../components/Tableau.jsx'
@@ -8,6 +8,7 @@ import Recherche from '../components/Recherche.jsx'
 import Filtres, { Filtre } from '../components/Filtres.jsx'
 import Bouton from '../components/Bouton.jsx'
 import { Etat } from '../components/Vide.jsx'
+import FicheBesoin from './Besoin.jsx'
 import api from '../lib/api.js'
 import { useRequete, depouillerListe } from '../lib/requete.js'
 import { useRoles } from '../lib/agent.jsx'
@@ -33,6 +34,7 @@ const STATUTS = [
 export default function Besoins() {
   const [params, setParams] = useSearchParams()
   const navigue = useNavigate()
+  const { id: besoinOuvert } = useParams()
   const { aLeRole } = useRoles()
 
   const statut = params.get('statut') ?? ''
@@ -139,7 +141,8 @@ export default function Besoins() {
           nomDesLignes="état de besoin"
           nomDesLignesPluriel="états de besoin"
           triInitial={{ cle: 'cree_le', sens: 'desc' }}
-          surClic={(e) => navigue(`/besoins/${e.id}`)}
+          surClic={(e) => navigue(`/besoins/${e.id}${window.location.search}`)}
+          ligneChoisie={(e) => e.id === besoinOuvert}
           ligneSignalee={(e) => e.statut === 'rejete'}
           ligneMarquee={(e) => estMarque(e.id)}
           titreVide="Aucun état de besoin"
@@ -151,6 +154,13 @@ export default function Besoins() {
           pied={`${nombre(lignes.length)} affiché(s) sur ${nombre(total)}`}
         />
       </Etat>
+
+      {besoinOuvert ? (
+        <FicheBesoin
+          id={besoinOuvert}
+          surFermeture={() => navigue(`/besoins${window.location.search}`)}
+        />
+      ) : null}
     </Page>
   )
 }

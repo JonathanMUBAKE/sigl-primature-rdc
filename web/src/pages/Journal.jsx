@@ -53,10 +53,10 @@ export default function Journal() {
         cle: 'agent_nom',
         titre: 'Agent',
         rendu: (l) => (
-          <>
-            <div>{texte(l.agent_nom)}</div>
-            {l.agent_fonction ? <div className="texte-note">{l.agent_fonction}</div> : null}
-          </>
+          <span className="cellule-deux-lignes">
+            <span>{texte(l.agent_nom)}</span>
+            <span className="texte-note">{texte(l.agent_fonction)}</span>
+          </span>
         ),
       },
       { cle: 'action', titre: 'Action', rendu: (l) => libelle(l.action) },
@@ -64,10 +64,10 @@ export default function Journal() {
         cle: 'objet_type',
         titre: 'Objet',
         rendu: (l) => (
-          <>
-            <div>{libelle(l.objet_type)}</div>
-            <div className="texte-note mono">{texte(l.objet_id)}</div>
-          </>
+          <span className="cellule-deux-lignes">
+            <span>{libelle(l.objet_type)}</span>
+            <span className="texte-note mono">{texte(l.objet_id)}</span>
+          </span>
         ),
       },
       {
@@ -124,23 +124,18 @@ export default function Journal() {
   )
 }
 
-/** Les valeurs avant/après, serrées, sans décorer. */
+/** Les valeurs avant/après : un résumé sur une ligne, le détail en infobulle. */
 function Valeurs({ valeur }) {
   if (valeur === null || valeur === undefined) return <span className="texte-note">—</span>
-  if (typeof valeur !== 'object') return <span className="mono cellule-faible">{String(valeur)}</span>
+  if (typeof valeur !== 'object')
+    return <span className="mono cellule-faible">{String(valeur)}</span>
   const entrees = Object.entries(valeur)
   if (entrees.length === 0) return <span className="texte-note">—</span>
+  const resume = entrees.map(([cle, v]) => `${cle} : ${v === null ? '—' : String(v)}`)
   return (
-    <div className="pile">
-      {entrees.slice(0, 6).map(([cle, v]) => (
-        <div key={cle} className="texte-note">
-          <span className="cle-valeur">{cle}</span> :{' '}
-          <span className="mono">{v === null ? '—' : String(v)}</span>
-        </div>
-      ))}
-      {entrees.length > 6 ? (
-        <div className="texte-note">… et {nombre(entrees.length - 6)} autre(s) champ(s)</div>
-      ) : null}
-    </div>
+    <span className="cellule-faible" title={resume.join('
+')}>
+      {resume.join(' · ')}
+    </span>
   )
 }

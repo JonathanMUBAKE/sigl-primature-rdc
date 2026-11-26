@@ -4,10 +4,8 @@ import BarreLaterale from './components/BarreLaterale.jsx'
 import { FournisseurAgent, useAgent } from './lib/agent.jsx'
 import TableauDeBord from './pages/TableauDeBord.jsx'
 import Patrimoine from './pages/Patrimoine.jsx'
-import Bien from './pages/Bien.jsx'
 import Stocks from './pages/Stocks.jsx'
 import Besoins from './pages/Besoins.jsx'
-import Besoin from './pages/Besoin.jsx'
 import Fournisseurs from './pages/Fournisseurs.jsx'
 import Alertes from './pages/Alertes.jsx'
 import Journal from './pages/Journal.jsx'
@@ -25,13 +23,16 @@ function Charpente() {
       <main className="charpente-contenu">
         <Routes>
           <Route path="/" element={<TableauDeBord />} />
+          {/* Les fiches s'ouvrent en tiroir par-dessus leur liste :
+              la même page sert les deux adresses. */}
           <Route path="/patrimoine" element={<Patrimoine />} />
-          <Route path="/patrimoine/:id" element={<Bien />} />
+          <Route path="/patrimoine/:id" element={<Patrimoine />} />
           <Route path="/stocks" element={<Stocks />} />
           <Route path="/besoins" element={<Besoins />} />
-          <Route path="/besoins/:id" element={<Besoin />} />
+          <Route path="/besoins/:id" element={<Besoins />} />
           <Route path="/fournisseurs" element={<Fournisseurs />} />
           <Route path="/alertes" element={<Alertes />} />
+          <Route path="/alertes/:id" element={<Alertes />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="*" element={<Introuvable />} />
         </Routes>
