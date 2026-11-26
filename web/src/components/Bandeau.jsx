@@ -11,7 +11,7 @@ import { libelle } from '../lib/format.js'
 */
 export default function Bandeau({ agent }) {
   return (
-    <header className="bandeau">
+    <header className="bandeau charpente-bandeau">
       <div className="bandeau-marque">
         <Armoiries taille={34} />
         <div className="bandeau-titres">

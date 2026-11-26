@@ -8,6 +8,7 @@ import Filtres, { Filtre } from '../components/Filtres.jsx'
 import { Etat } from '../components/Vide.jsx'
 import api from '../lib/api.js'
 import { useRequete, depouillerListe } from '../lib/requete.js'
+import { useMarquage, useRafraichissementVivant } from '../lib/flux.js'
 import { date, libelle, montantCourt, nombre, texte } from '../lib/format.js'
 
 const ETATS = ['neuf', 'bon', 'a_reparer', 'hors_service', 'en_maintenance', 'reforme', 'perdu']
@@ -41,6 +42,9 @@ export default function Patrimoine() {
     [q, etat, classement, structure],
   )
   const { lignes, total } = depouillerListe(donnees)
+
+  const { marquer, estMarque } = useMarquage()
+  useRafraichissementVivant('patrimoine', recharger, marquer)
 
   const colonnes = useMemo(
     () => [
@@ -118,25 +122,20 @@ export default function Patrimoine() {
         />
       </Filtres>
 
-      <Etat
-        chargement={chargement}
-        erreur={erreur}
-        recharger={recharger}
-        vide={lignes.length === 0}
-        texteChargement="Lecture du registre des biens…"
-        titreVide="Aucun bien ne correspond"
-        texteVide={
-          q || etat || classement || structure
-            ? 'Aucun bien du registre ne répond à ces critères. Élargissez la recherche ou retirez un filtre.'
-            : "Le registre ne contient aucun bien pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
-        }
-      >
+      <Etat chargement={chargement} erreur={erreur} recharger={recharger} texteChargement="Lecture du registre des biens…">
         <Tableau
           colonnes={colonnes}
           lignes={lignes}
           nomDesLignes="bien"
           surClic={(b) => navigue(`/patrimoine/${b.id}`)}
           ligneSignalee={(b) => b.etat === 'hors_service' || b.etat === 'perdu'}
+          ligneMarquee={(b) => estMarque(b.id)}
+          titreVide="Aucun bien ne correspond"
+          texteVide={
+            q || etat || classement || structure
+              ? 'Aucun bien du registre ne répond à ces critères. Élargissez la recherche ou retirez un filtre.'
+              : "Le registre ne contient aucun bien pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
+          }
           pied={`${nombre(lignes.length)} bien(s) affiché(s) sur ${nombre(total)} au registre`}
         />
       </Etat>

@@ -158,6 +158,8 @@ tr.vient-de-changer > td {
   align-items: center;
   gap: var(--espace-2);
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .bandeau-armoiries {
@@ -204,7 +206,12 @@ tr.vient-de-changer > td {
   display: flex;
   align-items: center;
   gap: var(--espace-2);
+  flex: none;
   min-width: 0;
+}
+
+.bandeau-agent-textes {
+  max-width: 26ch;
 }
 
 .bandeau-agent-textes {
@@ -286,9 +293,16 @@ tr.vient-de-changer > td {
   }
 }
 
+/* À 1100 px le sigle complet ne tient plus à côté de l'agent */
+@media (max-width: 1100px) {
+  .bandeau-sigle {
+    display: none;
+  }
+}
+
 @media (max-width: 860px) {
-  .bandeau-sigle,
-  .bandeau-agent-fonction {
+  .bandeau-agent-fonction,
+  .bandeau-pays {
     display: none;
   }
 }
@@ -555,6 +569,11 @@ tr.vient-de-changer > td {
   font-size: var(--texte-xs);
   color: var(--encre-douce);
   font-variant-numeric: tabular-nums;
+}
+
+.tableau tbody td.cellule-vide {
+  padding: 0;
+  border-bottom: none;
 }
 
 /* L'état vide s'installe dans le tableau, sans son cadre pointillé */
@@ -1222,8 +1241,28 @@ a.chiffre:hover {
   border-top: var(--filet) solid var(--ligne);
 }
 
+.marge-dessus-1 {
+  margin-top: var(--espace-1);
+}
+
+.marge-dessus-2 {
+  margin-top: var(--espace-2);
+}
+
 .marge-dessus-3 {
   margin-top: var(--espace-3);
+}
+
+.sans-marge {
+  margin: 0;
+}
+
+.largeur-formulaire {
+  max-width: 420px;
+}
+
+.cle-valeur {
+  font-weight: var(--graisse-appuyee);
 }
 
 .marge-dessus-5 {

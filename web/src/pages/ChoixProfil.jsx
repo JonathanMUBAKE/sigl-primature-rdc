@@ -44,22 +44,22 @@ export default function ChoixProfil() {
 
         <div className="profil-corps">
           <h1 className="page-titre">Choisir l'agent courant</h1>
-          <p className="texte-faible" style={{ maxWidth: '62ch', marginTop: 6 }}>
+          <p className="texte-faible largeur-propos marge-dessus-1">
             Le SIGL n'a pas encore de mot de passe. L'agent choisi ici désigne l'identité de travail :
             le serveur en déduit les rôles et applique les droits pour de bon. Changez d'agent pour
             voir le même dossier avec d'autres pouvoirs.
           </p>
 
-          <h2 className="section-titre" style={{ marginTop: 22 }}>
+          <h2 className="section-titre marge-dessus-5">
             Agents enregistrés
           </h2>
 
           {chargement ? (
-            <div style={{ marginTop: 10 }}>
+            <div className="marge-dessus-3">
               <Chargement texte="Lecture de la liste des agents…" />
             </div>
           ) : erreur ? (
-            <div style={{ marginTop: 10 }}>
+            <div className="marge-dessus-3">
               <Erreur
                 erreur={erreur}
                 surReessai={recharger}
@@ -67,7 +67,7 @@ export default function ChoixProfil() {
               />
             </div>
           ) : lignes.length === 0 ? (
-            <p className="texte-faible" style={{ marginTop: 8 }}>
+            <p className="texte-faible marge-dessus-2">
               Le serveur ne renvoie aucun agent. Chargez le jeu de démonstration, ou saisissez
               directement un identifiant ci-dessous.
             </p>
@@ -86,7 +86,7 @@ export default function ChoixProfil() {
                     {candidat.structure_nom ? ` · ${candidat.structure_nom}` : ''}
                   </div>
                   {Array.isArray(candidat.roles) && candidat.roles.length > 0 ? (
-                    <div className="texte-note" style={{ marginTop: 4 }}>
+                    <div className="texte-note marge-dessus-1">
                       {candidat.roles.map(libelle).join(' · ')}
                     </div>
                   ) : null}
@@ -95,16 +95,9 @@ export default function ChoixProfil() {
             </div>
           )}
 
-          <div
-            style={{
-              marginTop: 24,
-              paddingTop: 18,
-              borderTop: '1px solid var(--ligne)',
-              maxWidth: 420,
-            }}
-          >
+          <div className="separe-dessus largeur-formulaire">
             <h2 className="section-titre">Saisir un identifiant d'agent</h2>
-            <p className="texte-note" style={{ margin: '6px 0 10px' }}>
+            <p className="texte-note marge-dessus-1">
               Utile quand la liste n'est pas servie : collez l'identifiant technique de l'agent.
             </p>
             <Champ

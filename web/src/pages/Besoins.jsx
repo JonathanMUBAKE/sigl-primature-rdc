@@ -11,6 +11,7 @@ import { Etat } from '../components/Vide.jsx'
 import api from '../lib/api.js'
 import { useRequete, depouillerListe } from '../lib/requete.js'
 import { useRoles } from '../lib/agent.jsx'
+import { useMarquage, useRafraichissementVivant } from '../lib/flux.js'
 import { date, libelle, nombre, texte } from '../lib/format.js'
 
 const STATUTS = [
@@ -53,6 +54,9 @@ export default function Besoins() {
     [statut, structure, q],
   )
   const { lignes, total } = depouillerListe(donnees)
+
+  const { marquer, estMarque } = useMarquage()
+  useRafraichissementVivant('besoins', recharger, marquer)
 
   const colonnes = useMemo(
     () => [
@@ -128,19 +132,7 @@ export default function Besoins() {
         />
       </Filtres>
 
-      <Etat
-        chargement={chargement}
-        erreur={erreur}
-        recharger={recharger}
-        vide={lignes.length === 0}
-        texteChargement="Lecture des états de besoin…"
-        titreVide="Aucun état de besoin"
-        texteVide={
-          statut || structure || q
-            ? 'Aucun état de besoin ne répond à ces critères.'
-            : "Aucun état de besoin n'existe pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
-        }
-      >
+      <Etat chargement={chargement} erreur={erreur} recharger={recharger} texteChargement="Lecture des états de besoin…">
         <Tableau
           colonnes={colonnes}
           lignes={lignes}
@@ -149,6 +141,13 @@ export default function Besoins() {
           triInitial={{ cle: 'cree_le', sens: 'desc' }}
           surClic={(e) => navigue(`/besoins/${e.id}`)}
           ligneSignalee={(e) => e.statut === 'rejete'}
+          ligneMarquee={(e) => estMarque(e.id)}
+          titreVide="Aucun état de besoin"
+          texteVide={
+            statut || structure || q
+              ? 'Aucun état de besoin ne répond à ces critères.'
+              : "Aucun état de besoin n'existe pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
+          }
           pied={`${nombre(lignes.length)} affiché(s) sur ${nombre(total)}`}
         />
       </Etat>

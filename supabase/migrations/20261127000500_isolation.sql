@@ -34,6 +34,14 @@ begin
 end
 $$;
 
+-- Le rôle propriétaire doit être **membre** des deux autres pour pouvoir
+-- basculer dessus par `set local role`. Sous Supabase, `postgres` n'est pas
+-- superutilisateur : sans cette appartenance, `db.js` échoue avec
+-- « permission denied to set role ». La bascule ne lui rend aucun privilège
+-- supplémentaire — elle lui en retire, puisque `sigl_agent` ne porte pas
+-- `rolbypassrls` et se voit donc appliquer les politiques.
+grant sigl_agent, sigl_consolidation to postgres;
+
 grant usage on schema public to sigl_agent, sigl_consolidation;
 
 -- Le rôle métier écrit ; le rôle de consolidation ne fait que lire.

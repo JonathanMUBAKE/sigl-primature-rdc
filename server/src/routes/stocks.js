@@ -11,7 +11,9 @@
 
 import { tous, un, transaction } from '../db.js';
 import { ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture } from './_droits.js';
-import { appliquer, liste, nonTrouve, pagination, schemaIdParam, schemaPagination } from './_commun.js';
+import {
+  appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
+} from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
 import { publier } from './_flux.js';
 import { rg005 } from '../regles/rg-005.js';
@@ -356,11 +358,10 @@ export default async function routesStocks(app) {
     if (!article) throw nonTrouve('Cet article de stock');
     await verifierEcritureStructure(request, article.structure_id);
     if (request.body.seuil_critique > request.body.seuil_minimum) {
-      throw appliquer({
-        code: 'donnees_invalides',
-        message: 'Portez le seuil critique au niveau du seuil minimum ou en dessous : le critique est le plus bas des deux.',
-        champ: 'seuil_critique',
-      }, 400);
+      throw donneesInvalides(
+        'Portez le seuil critique au niveau du seuil minimum ou en dessous : le critique est le plus bas des deux.',
+        'seuil_critique',
+      );
     }
     const resultat = await transaction(async () => {
       await journaliserDepuis(request, {

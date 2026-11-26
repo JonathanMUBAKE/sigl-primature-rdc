@@ -95,7 +95,7 @@ export default function Tableau({
           <tbody>
             {ordonnees.length === 0 ? (
               <tr>
-                <td colSpan={colonnes.length} style={{ padding: 0, borderBottom: 'none' }}>
+                <td colSpan={colonnes.length} className="cellule-vide">
                   <Vide titre={titreVide} texte={texteVide} action={actionVide} />
                 </td>
               </tr>
