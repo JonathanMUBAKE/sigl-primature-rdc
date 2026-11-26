@@ -1,0 +1,6 @@
+Déposer ici les PDF que les serveurs refusent de livrer à un accès automatisé.
+
+Attendus :
+- DECRET_10-34_fixant_le_seuil.pdf  (seuils de passation, ARMP)
+- DECRET_10-22_Manuel_de_procedures.pdf  (manuel de procédures, ARMP)
+- fmis-25-ans-banque-mondiale.pdf  (Dener, Watkins, Dorotinsky, 2011)
