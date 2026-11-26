@@ -20,7 +20,7 @@ export default function ChoixProfil() {
   const { agent, choisir } = useAgent()
   const navigue = useNavigate()
   const { donnees, chargement, erreur, recharger } = useRequete(
-    (o) => api.agents({ actif: true }, o),
+    (o) => api.profils(o),
     [],
   )
   const { lignes } = depouillerListe(donnees)

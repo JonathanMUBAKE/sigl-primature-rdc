@@ -119,7 +119,7 @@ export default function Patrimoine() {
           libelle="Structure"
           valeur={structure}
           surChangement={(v) => poser('structure', v)}
-          options={listeStructures.map((s) => ({ valeur: s.code ?? s.id, libelle: s.nom }))}
+          options={listeStructures.map((s) => ({ valeur: s.id, libelle: s.nom }))}
           toutes="Toutes les structures"
         />
       </Filtres>

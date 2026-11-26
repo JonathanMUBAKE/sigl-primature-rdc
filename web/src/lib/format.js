@@ -182,10 +182,14 @@ const LIBELLES = {
   confirmee: 'Confirmée',
   classee: 'Classée',
   // alerte.gravite
-  basse: 'Basse',
-  moyenne: 'Moyenne',
-  haute: 'Haute',
+  information: 'Information',
+  attention: 'Attention',
   critique: 'Critique',
+  // stock.criticite
+  rupture: 'Rupture',
+  sous_minimum: 'Sous le seuil minimum',
+  rupture_prevue: 'Rupture prévisible',
+  normal: 'Suffisant',
   // structure.regime
   integre: 'Intégrée',
   autonome: 'Autonome',

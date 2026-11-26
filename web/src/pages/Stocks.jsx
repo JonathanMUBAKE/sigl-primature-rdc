@@ -1,58 +1,44 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
-import Page, { Section } from '../components/Page.jsx'
+import Page from '../components/Page.jsx'
+import Bento, { Bloc } from '../components/Bento.jsx'
 import Tableau from '../components/Tableau.jsx'
 import Pastille from '../components/Pastille.jsx'
 import Recherche from '../components/Recherche.jsx'
 import Filtres, { Filtre } from '../components/Filtres.jsx'
 import Bouton from '../components/Bouton.jsx'
+import Chiffre, { RangeeChiffres } from '../components/Chiffre.jsx'
 import { Etat } from '../components/Vide.jsx'
 import api from '../lib/api.js'
-import { useRequete, depouillerListe } from '../lib/requete.js'
+import { useRequete } from '../lib/requete.js'
 import { useFlux, useMarquage } from '../lib/flux.js'
 import { date, horodatage, jours, libelle, nombre, texte } from '../lib/format.js'
 
 /*
-  Les stocks, par article et par site. GET /api/stocks ?site=&sous_seuil=
+  Les stocks. GET /api/stocks ?site=&structure=&categorie=&q=&sous_seuil=
+  &sous_critique=&rupture=&tri=
 
-  L'écran le plus vivant du SIGL : les mouvements arrivent en direct par le
-  flux, les articles sous seuil passent en tête, et chaque ligne dit combien
-  de jours elle tient encore et quand la rupture est prévue.
+  L'écran le plus vivant du SIGL : le serveur trie déjà par criticité, les
+  mouvements arrivent en direct par le flux, et chaque ligne dit combien de
+  jours elle tient encore et quand la rupture est prévue.
 
-  Les jours de couverture et la date de rupture viennent du serveur
-  (`jours_de_couverture`, `rupture_le`, `consommation_jour`). S'il ne les
-  fournit pas, l'écran les déduit de la consommation journalière quand elle
-  est connue — et sinon affiche « — » : rien n'est inventé.
+  Les champs viennent du serveur tels quels : `criticite`, `jours_couverture`,
+  `date_rupture_prevue`, `consommation_jour`. L'enveloppe porte un `resume`.
+  Rien n'est recalculé ici.
 */
 
-function tension(ligne) {
-  const quantite = Number(ligne.quantite ?? 0)
-  const critique = Number(ligne.seuil_critique ?? 0)
-  const minimum = Number(ligne.seuil_minimum ?? 0)
-  if (quantite <= 0) return { rang: 0, ton: 'critique', texte: 'Rupture' }
-  if (critique > 0 && quantite <= critique)
-    return { rang: 1, ton: 'critique', texte: 'Sous le seuil critique' }
-  if (minimum > 0 && quantite <= minimum)
-    return { rang: 2, ton: 'attente', texte: 'Sous le seuil minimum' }
-  return { rang: 3, ton: 'succes', texte: 'Suffisant' }
-}
-
-/** La couverture restante, en jours, telle que le serveur la donne ou la déduit. */
-function couverture(ligne) {
-  if (typeof ligne.jours_de_couverture === 'number') return ligne.jours_de_couverture
-  const consommation = Number(ligne.consommation_jour ?? 0)
-  const quantite = Number(ligne.quantite ?? 0)
-  if (consommation > 0) return Math.floor(quantite / consommation)
-  return null
-}
+const CRITICITES = [
+  { valeur: 'rupture', libelle: 'En rupture', parametre: 'rupture' },
+  { valeur: 'sous_critique', libelle: 'Sous le seuil critique', parametre: 'sous_critique' },
+  { valeur: 'sous_seuil', libelle: 'Sous le seuil minimum', parametre: 'sous_seuil' },
+]
 
 export default function Stocks() {
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const site = params.get('site') ?? ''
-  const sousSeuil = params.get('sous_seuil') ?? ''
-  const horizon = params.get('horizon') ?? ''
+  const tension = params.get('tension') ?? ''
 
   function poser(cle, valeur) {
     const prochain = new URLSearchParams(params)
@@ -61,123 +47,110 @@ export default function Stocks() {
     setParams(prochain, { replace: true })
   }
 
+  // Le serveur n'accepte que ses propres paramètres : on ne lui en envoie pas d'autres.
+  const critere = CRITICITES.find((c) => c.valeur === tension)
   const { donnees, chargement, erreur, recharger } = useRequete(
-    (o) => api.stocks({ site, sous_seuil: sousSeuil || undefined, horizon: horizon || undefined }, o),
-    [site, sousSeuil, horizon],
+    (o) =>
+      api.stocks(
+        {
+          q: q || undefined,
+          site: site || undefined,
+          tri: 'criticite',
+          ...(critere ? { [critere.parametre]: true } : {}),
+        },
+        o,
+      ),
+    [q, site, tension],
   )
-  const { lignes, total } = depouillerListe(donnees)
+
+  const lignes = Array.isArray(donnees?.donnees) ? donnees.donnees : []
+  const total = donnees?.total ?? lignes.length
+  const resume = donnees?.resume ?? {}
 
   // Les mouvements reçus en direct, dans l'ordre d'arrivée.
   const { marquer, estMarque } = useMarquage()
   const [mouvementsVivants, setMouvementsVivants] = useState([])
   useFlux(['stocks', 'patrimoine'], (evenement) => {
     marquer(evenement.id)
-    marquer(evenement.donnees?.categorie_code)
-    setMouvementsVivants((anciens) => [evenement, ...anciens].slice(0, 12))
+    setMouvementsVivants((anciens) => [evenement, ...anciens].slice(0, 10))
     recharger()
   })
 
-  const filtrees = useMemo(() => {
-    const motif = q.trim().toLocaleLowerCase('fr')
-    let retenues = motif
-      ? lignes.filter((l) =>
-          [l.categorie_libelle, l.categorie_code, l.site_nom]
-            .filter(Boolean)
-            .some((v) => String(v).toLocaleLowerCase('fr').includes(motif)),
-        )
-      : lignes
-
-    if (horizon) {
-      const borne = Number(horizon)
-      retenues = retenues.filter((l) => {
-        const c = couverture(l)
-        return c !== null && c <= borne
-      })
-    }
-
-    // Les articles sous seuil en tête, puis la couverture la plus courte.
-    return [...retenues].sort((a, b) => {
-      const ta = tension(a)
-      const tb = tension(b)
-      if (ta.rang !== tb.rang) return ta.rang - tb.rang
-      const ca = couverture(a)
-      const cb = couverture(b)
-      if (ca !== null && cb !== null && ca !== cb) return ca - cb
-      return Number(a.quantite ?? 0) - Number(b.quantite ?? 0)
-    })
-  }, [lignes, q, horizon])
-
-  const enTension = filtrees.filter((l) => tension(l).rang <= 2).length
-  const sites = useMemo(
-    () => [...new Set(lignes.map((l) => l.site_id).filter(Boolean))],
-    [lignes],
-  )
+  const sites = useMemo(() => {
+    const vus = new Map()
+    for (const l of lignes) if (l.site_id && !vus.has(l.site_id)) vus.set(l.site_id, l.site_nom)
+    return [...vus.entries()].map(([valeur, libelleSite]) => ({ valeur, libelle: libelleSite }))
+  }, [lignes])
 
   const colonnes = useMemo(
     () => [
       {
-        cle: 'tension',
+        cle: 'criticite',
         titre: 'Tension',
-        triable: false,
-        rendu: (l) => {
-          const t = tension(l)
-          return <Pastille ton={t.ton} texte={t.texte} valeur={t.texte} />
-        },
+        rendu: (l) => <Pastille valeur={l.criticite} />,
       },
       {
-        cle: 'categorie_libelle',
+        cle: 'designation',
         titre: 'Article',
-        rendu: (l) => texte(l.categorie_libelle ?? l.categorie_code),
+        rendu: (l) => (
+          <span className="cellule-deux-lignes">
+            <span>{texte(l.designation ?? l.categorie_libelle)}</span>
+            <span className="texte-note">
+              {texte(l.categorie_libelle)} · {texte(l.site_nom)}
+            </span>
+          </span>
+        ),
       },
-      {
-        cle: 'categorie_code',
-        titre: 'Code',
-        rendu: (l) => <span className="mono cellule-faible">{texte(l.categorie_code)}</span>,
-      },
-      { cle: 'site_nom', titre: 'Site', rendu: (l) => texte(l.site_nom) },
       {
         cle: 'quantite',
         titre: 'En stock',
         nombre: true,
         valeur: (l) => Number(l.quantite ?? 0),
-        rendu: (l) => nombre(l.quantite),
+        rendu: (l) => (
+          <>
+            {nombre(l.quantite)} <span className="texte-note">{texte(l.unite)}</span>
+          </>
+        ),
       },
       {
         cle: 'seuil_minimum',
-        titre: 'Seuil minimum',
+        titre: 'Seuil min.',
         nombre: true,
         valeur: (l) => Number(l.seuil_minimum ?? 0),
         rendu: (l) => <span className="cellule-faible">{nombre(l.seuil_minimum)}</span>,
       },
       {
         cle: 'seuil_critique',
-        titre: 'Seuil critique',
+        titre: 'Seuil crit.',
         nombre: true,
         valeur: (l) => Number(l.seuil_critique ?? 0),
         rendu: (l) => <span className="cellule-faible">{nombre(l.seuil_critique)}</span>,
       },
       {
         cle: 'consommation_jour',
-        titre: 'Consommation / jour',
+        titre: 'Conso. / jour',
         nombre: true,
         valeur: (l) => Number(l.consommation_jour ?? 0),
         rendu: (l) => <span className="cellule-faible">{nombre(l.consommation_jour)}</span>,
       },
       {
-        cle: 'couverture',
+        cle: 'jours_couverture',
         titre: 'Couverture',
         nombre: true,
-        valeur: (l) => couverture(l) ?? Number.MAX_SAFE_INTEGER,
-        rendu: (l) => {
-          const c = couverture(l)
-          return c === null ? '—' : jours(c)
-        },
+        valeur: (l) =>
+          l.jours_couverture === null || l.jours_couverture === undefined
+            ? Number.MAX_SAFE_INTEGER
+            : Number(l.jours_couverture),
+        rendu: (l) =>
+          l.jours_couverture === null || l.jours_couverture === undefined
+            ? '—'
+            : jours(l.jours_couverture),
       },
       {
-        cle: 'rupture_le',
-        titre: 'Rupture prévue le',
+        cle: 'date_rupture_prevue',
+        titre: 'Rupture prévue',
         nombre: true,
-        rendu: (l) => date(l.rupture_le),
+        rendu: (l) => date(l.date_rupture_prevue),
       },
     ],
     [],
@@ -186,7 +159,7 @@ export default function Stocks() {
   return (
     <Page
       titre="Stocks"
-      sousTitre="Les articles sous le seuil en tête, la couverture restante et la rupture prévisible"
+      sousTitre="Triés par criticité : ce qui manque d'abord, la couverture restante, la rupture prévisible"
       fil={[{ libelle: 'SIGL', to: '/' }, { libelle: 'Stocks' }]}
       actions={
         <Bouton icone={RefreshCw} surClic={recharger}>
@@ -194,91 +167,125 @@ export default function Stocks() {
         </Bouton>
       }
     >
+      <Bento>
+        <Bloc
+          large={12}
+          titre="L'état des stocks"
+          note={
+            resume.fenetre_consommation_jours
+              ? `Consommation observée sur ${jours(resume.fenetre_consommation_jours)}`
+              : undefined
+          }
+        >
+          <RangeeChiffres>
+            <Chiffre valeur={total} libelle="Articles suivis" vers="/stocks" />
+            <Chiffre
+              valeur={resume.en_rupture}
+              libelle="En rupture"
+              vers="/stocks?tension=rupture"
+              ton="critique"
+            />
+            <Chiffre
+              valeur={resume.sous_critique}
+              libelle="Sous le seuil critique"
+              vers="/stocks?tension=sous_critique"
+              ton="critique"
+            />
+            <Chiffre
+              valeur={resume.sous_minimum}
+              libelle="Sous le seuil minimum"
+              vers="/stocks?tension=sous_seuil"
+              ton="attente"
+            />
+            <Chiffre
+              valeur={resume.rupture_sous_30_jours}
+              libelle="Rupture sous 30 jours"
+              ton="attente"
+            />
+          </RangeeChiffres>
+        </Bloc>
+      </Bento>
+
       <Filtres
-        total={erreur || chargement ? undefined : filtrees.length}
+        total={erreur || chargement ? undefined : lignes.length}
         nom="article"
-        note={enTension > 0 ? `dont ${nombre(enTension)} sous un seuil` : undefined}
+        note={
+          typeof resume.sous_critique === 'number' && resume.sous_critique > 0
+            ? `${nombre(resume.sous_critique)} sous le seuil critique`
+            : undefined
+        }
       >
         <Recherche
           valeur={q}
           surChangement={(v) => poser('q', v)}
-          placeholder="Article, code de catégorie, site…"
+          placeholder="Article, désignation, code de catégorie…"
         />
         <Filtre
           libelle="Site"
           valeur={site}
           surChangement={(v) => poser('site', v)}
-          options={sites.map((idSite) => ({
-            valeur: idSite,
-            libelle: lignes.find((l) => l.site_id === idSite)?.site_nom ?? idSite,
-          }))}
+          options={sites}
           toutes="Tous les sites"
         />
         <Filtre
-          libelle="Sous seuil"
-          valeur={sousSeuil}
-          surChangement={(v) => poser('sous_seuil', v)}
-          options={[{ valeur: '1', libelle: 'Seulement sous seuil' }]}
+          libelle="Tension"
+          valeur={tension}
+          surChangement={(v) => poser('tension', v)}
+          options={CRITICITES}
           toutes="Tous les articles"
-        />
-        <Filtre
-          libelle="Rupture sous"
-          valeur={horizon}
-          surChangement={(v) => poser('horizon', v)}
-          options={[
-            { valeur: '7', libelle: '7 jours' },
-            { valeur: '15', libelle: '15 jours' },
-            { valeur: '30', libelle: '30 jours' },
-            { valeur: '60', libelle: '60 jours' },
-          ]}
-          toutes="Sans horizon"
         />
       </Filtres>
 
-      <Section>
-        <Etat
-          chargement={chargement}
-          erreur={erreur}
-          recharger={recharger}
-          texteChargement="Lecture des stocks…"
-        >
-          <Tableau
-            colonnes={colonnes}
-            lignes={filtrees}
-            cleDeLigne={(l, i) => `${l.categorie_code ?? i}-${l.site_id ?? i}`}
-            ligneSignalee={(l) => tension(l).rang <= 1}
-            ligneMarquee={(l) => estMarque(l.categorie_code) || estMarque(l.id)}
-            nomDesLignes="article"
-            titreVide="Aucun article de stock"
-            texteVide={
-              q || site || sousSeuil || horizon
-                ? 'Aucun article ne répond à ces critères. Retirez un filtre pour voir le reste.'
-                : "Aucun article n'est suivi en stock pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
-            }
-            pied={`${nombre(filtrees.length)} article(s) affiché(s) · ${nombre(enTension)} sous un seuil · ${nombre(total)} au total`}
-          />
-        </Etat>
-      </Section>
+      <Etat
+        chargement={chargement}
+        erreur={erreur}
+        recharger={recharger}
+        texteChargement="Lecture des stocks…"
+      >
+        <Tableau
+          colonnes={colonnes}
+          lignes={lignes}
+          cleDeLigne={(l, i) => l.id ?? `${l.categorie_code}-${i}`}
+          ligneSignalee={(l) => ['rupture', 'sous_critique'].includes(l.criticite)}
+          ligneMarquee={(l) => estMarque(l.id)}
+          nomDesLignes="article"
+          titreVide="Aucun article de stock"
+          texteVide={
+            q || site || tension
+              ? 'Aucun article ne répond à ces critères. Retirez un filtre pour voir le reste.'
+              : "Aucun article n'est suivi en stock pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
+          }
+          pied={`${nombre(lignes.length)} article(s) affiché(s) sur ${nombre(total)}`}
+        />
+      </Etat>
 
       {mouvementsVivants.length > 0 ? (
-        <Section titre="Mouvements reçus en direct" note="Arrivés par le flux depuis l'ouverture de l'écran">
-          <Tableau
-            lignes={mouvementsVivants}
-            cleDeLigne={(m, i) => `${m.recu_le}-${i}`}
-            nomDesLignes="mouvement reçu"
-            nomDesLignesPluriel="mouvements reçus"
-            colonnes={[
-              { cle: 'recu_le', titre: 'Reçu à', nombre: true, rendu: (m) => horodatage(m.recu_le) },
-              { cle: 'sujet', titre: 'Sujet', rendu: (m) => libelle(m.sujet) },
-              { cle: 'type', titre: 'Nature', rendu: (m) => libelle(m.type) },
-              {
-                cle: 'id',
-                titre: 'Objet',
-                rendu: (m) => <span className="mono cellule-faible">{texte(m.id)}</span>,
-              },
-            ]}
-          />
-        </Section>
+        <div className="marge-dessus-5">
+          <h2 className="section-titre">Mouvements reçus en direct</h2>
+          <div className="marge-dessus-3">
+            <Tableau
+              lignes={mouvementsVivants}
+              cleDeLigne={(m, i) => `${m.recu_le}-${i}`}
+              nomDesLignes="mouvement reçu"
+              nomDesLignesPluriel="mouvements reçus"
+              colonnes={[
+                {
+                  cle: 'recu_le',
+                  titre: 'Reçu à',
+                  nombre: true,
+                  rendu: (m) => horodatage(m.recu_le),
+                },
+                { cle: 'sujet', titre: 'Sujet', rendu: (m) => libelle(m.sujet) },
+                { cle: 'type', titre: 'Nature', rendu: (m) => libelle(m.type) },
+                {
+                  cle: 'id',
+                  titre: 'Objet',
+                  rendu: (m) => <span className="mono cellule-faible">{texte(m.id)}</span>,
+                },
+              ]}
+            />
+          </div>
+        </div>
       ) : null}
     </Page>
   )

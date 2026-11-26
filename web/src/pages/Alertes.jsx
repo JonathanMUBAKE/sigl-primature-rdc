@@ -16,7 +16,7 @@ import { useMarquage, useRafraichissementVivant } from '../lib/flux.js'
 import { horodatage, libelle, nombre, texte } from '../lib/format.js'
 
 const STATUTS = ['ouverte', 'en_examen', 'justifiee', 'confirmee', 'classee']
-const GRAVITES = ['basse', 'moyenne', 'haute', 'critique']
+const GRAVITES = ['information', 'attention', 'critique']
 const SUITES = [
   { valeur: 'en_examen', libelle: 'En examen — instruction en cours' },
   { valeur: 'justifiee', libelle: 'Justifiée — rien à redresser' },
@@ -144,7 +144,7 @@ export default function Alertes() {
           lignes={filtrees}
           nomDesLignes="alerte"
           triInitial={{ cle: 'gravite', sens: 'desc' }}
-          ligneSignalee={(a) => a.statut === 'ouverte' && ['haute', 'critique'].includes(a.gravite)}
+          ligneSignalee={(a) => a.statut === 'ouverte' && a.gravite === 'critique'}
           ligneMarquee={(a) => estMarque(a.id)}
           ligneChoisie={(a) => a.id === alerteOuverte}
           surClic={(a) => navigue(`/alertes/${a.id}${window.location.search}`)}

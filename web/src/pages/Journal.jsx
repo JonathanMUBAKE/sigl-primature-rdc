@@ -133,8 +133,7 @@ function Valeurs({ valeur }) {
   if (entrees.length === 0) return <span className="texte-note">—</span>
   const resume = entrees.map(([cle, v]) => `${cle} : ${v === null ? '—' : String(v)}`)
   return (
-    <span className="cellule-faible" title={resume.join('
-')}>
+    <span className="cellule-faible" title={resume.join('\n')}>
       {resume.join(' · ')}
     </span>
   )

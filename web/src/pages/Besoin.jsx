@@ -65,10 +65,12 @@ export default function FicheBesoin({ id, surFermeture }) {
     setEnvoi(true)
     setErreurAction(null)
     try {
-      if (quoi === 'viser') await api.viserBesoin(id, { motif: motif || undefined })
-      else if (quoi === 'examiner') await api.examinerBesoin(id, { motif, decision: 'partiel' })
-      else if (quoi === 'rejeter') await api.examinerBesoin(id, { motif, decision: 'rejete' })
-      else if (quoi === 'accuser') await api.accuserBesoin(id, { motif: motif || undefined })
+      // Les corps attendus par le serveur : ils ne portent pas tous le même nom.
+      if (quoi === 'viser') await api.viserBesoin(id, motif ? { justification: motif } : null)
+      else if (quoi === 'examiner') await api.examinerBesoin(id, { decision: 'partielle', motif })
+      else if (quoi === 'rejeter') await api.examinerBesoin(id, { decision: 'rejet', motif })
+      else if (quoi === 'accuser')
+        await api.accuserBesoin(id, motif ? { observations: motif } : null)
       setAction(null)
       setMotif('')
       fiche.recharger()

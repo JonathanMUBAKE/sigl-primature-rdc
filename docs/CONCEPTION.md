@@ -659,3 +659,46 @@ qui ne figuraient pas dans la vision initiale : le certificat de prise en charge
 verrou du paiement, les valeurs inactives comme neuvième module, le contrôle contre la liste noire de
 l'ARMP, le blocage du fractionnement au moment de la saisie, l'étape de réemploi avant la réforme, et
 les deux valeurs à tenir pour les stocks distribués gratuitement.
+
+---
+
+## 15. Hypothèses levées — 27 novembre 2026
+
+Source : **Rapport Annuel Général d'Activités de la Primature, exercice 2023**, mars 2024, document
+officiel de l'institution.
+
+**Hypothèse 3 levée — la liste des structures est complète.** Le rapport l'énonce sans ambiguïté :
+« La Primature est composée du Cabinet de Son Excellence Madame le Premier Ministre, Cheffe du
+Gouvernement, du Secrétariat Général à la Primature, du Secrétariat Général du Gouvernement et des
+Services Rattachés à la Primature. À ce jour, l'on en dénombre **huit (8)**. »
+
+Les huit services rattachés, nommés :
+
+| Sigle | Dénomination |
+|---|---|
+| APCSC | Agence de Pilotage, de Coordination et de Suivi des Conventions de Collaboration |
+| ARC-CSU | Autorité de Régulation et de Contrôle de la Couverture Santé Universelle |
+| ARMP | Autorité de Régulation des Marchés Publics |
+| CNP | Caisse Nationale de Péréquation |
+| CAID | Cellule d'Analyses des Indicateurs de Développement |
+| **CEGAG** | **Cellule de Gestion de l'Aéronef du Gouvernement** |
+| CGIG | Cellule de Gestion des Immeubles du Gouvernement |
+| CND-SI | Comité National du Désarmement et de la Sécurité Internationale |
+
+**La CEGAG ne figurait pas sur le site officiel**, dont la liste s'arrête à la lettre D. Et elle
+compte pour le SIGL : un aéronef est le bien le plus coûteux du patrimoine, avec un régime
+d'entretien, de certification et de traçabilité qui n'a rien de commun avec du mobilier. À traiter
+comme un cas particulier au cadrage.
+
+**La Delivery Unit**, présente sur le site, ne figure pas parmi les huit. Elle relève donc
+vraisemblablement du Cabinet et non des services rattachés. À confirmer.
+
+**L'objet du rapport éclaire aussi le nôtre.** Il est décrit comme « un instrument d'évaluation et de
+pilotage stratégique » des services, destiné à « renforcer le leadership du Secrétariat Général à la
+Primature comme administration pérenne près le Premier Ministre ». Le SIGL s'inscrit dans cette
+démarche, et le Secrétariat Général en est le porteur naturel — ce qui tranche en partie
+l'hypothèse 1 sur le partage entre Cabinet et Secrétariat général.
+
+**Les personnes nommées**, utiles pour l'adresse protocolaire d'une note : Son Excellence Madame
+**Judith SUMINWA TULUKA**, Première ministre et Cheffe du Gouvernement ; Monsieur **Paul MAVULU
+DOF'ATANDELE**, Secrétaire Général à la Primature.

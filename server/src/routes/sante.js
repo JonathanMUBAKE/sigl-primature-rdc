@@ -1,4 +1,5 @@
-import { lireTous, lireUn } from './_sql.js';
+import { lireTous, lireUn, enConsolidation } from './_sql.js';
+import { un as dbUn, valeur as dbValeur } from '../db.js';
 // GET /api/sante — l'état du serveur et de la base, sans droit requis.
 // Elle sert aussi d'écran de sélection de profil : la liste des agents et de
 // leurs rôles, pour la démonstration.
@@ -21,14 +22,27 @@ export default async function routesSante(app) {
       },
     },
   }, async (request) => {
+    // La base d'abord : une requête triviale suffit à dire si elle répond.
     let base = 'indisponible';
     let migrations = 0;
     try {
-      const ligne = await lireUn(request, 'select count(*)::int as n from migration');
-      migrations = ligne?.n ?? 0;
+      await enConsolidation(request, () => dbValeur('select 1'));
       base = 'disponible';
     } catch {
       base = 'indisponible';
+    }
+    // Le compte des migrations ensuite, et séparément : depuis le passage à
+    // Supabase, c'est le CLI qui tient le registre, dans son propre schéma.
+    // S'il n'est pas lisible, on le dit par un zéro plutôt que de déclarer la
+    // base en panne — un point de santé qui ment est pire que pas de point.
+    if (base === 'disponible') {
+      try {
+        const ligne = await enConsolidation(request, () =>
+          dbUn('select count(*)::int as n from supabase_migrations.schema_migrations'));
+        migrations = ligne?.n ?? 0;
+      } catch {
+        migrations = 0;
+      }
     }
     return {
       etat: base === 'disponible' ? 'en_service' : 'degrade',

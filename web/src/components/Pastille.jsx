@@ -35,11 +35,15 @@ const TONS = {
   justifiee: 'succes',
   confirmee: 'critique',
   classee: 'neutre',
-  // alerte.gravite
-  basse: 'neutre',
-  moyenne: 'attente',
-  haute: 'critique',
+  // alerte.gravite — information, attention, critique
+  information: 'info',
+  attention: 'attente',
   critique: 'critique',
+  // stock.criticite
+  rupture: 'critique',
+  sous_minimum: 'attente',
+  rupture_prevue: 'attente',
+  normal: 'succes',
   // structure.regime
   integre: 'info',
   autonome: 'attente',

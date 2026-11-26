@@ -116,7 +116,11 @@ export const api = {
 
   structures: (p, o) => lire('/structures', p, o),
 
-  agents: (p, o) => lire('/agents', p, o),
+  // Les agents disponibles pour la démonstration : le serveur sert /profils.
+  profils: (o) => lire('/profils', null, o),
+
+  categories: (p, o) => lire('/categories', p, o),
+  sites: (p, o) => lire('/sites', p, o),
 
   biens: (p, o) => lire('/biens', p, o),
   bien: (id, o) => lire(`/biens/${encodeURIComponent(id)}`, null, o),
@@ -126,9 +130,11 @@ export const api = {
     poster(`/biens/${encodeURIComponent(id)}/mouvements`, corps, o),
 
   stocks: (p, o) => lire('/stocks', p, o),
+  stock: (id, o) => lire(`/stocks/${encodeURIComponent(id)}`, null, o),
 
   besoins: (p, o) => lire('/besoins', p, o),
   besoin: (id, o) => lire(`/besoins/${encodeURIComponent(id)}`, null, o),
+  cloreBesoin: (id, corps, o) => poster(`/besoins/${encodeURIComponent(id)}/clore`, corps, o),
   creerBesoin: (corps, o) => poster('/besoins', corps, o),
   viserBesoin: (id, corps, o) => poster(`/besoins/${encodeURIComponent(id)}/viser`, corps, o),
   examinerBesoin: (id, corps, o) => poster(`/besoins/${encodeURIComponent(id)}/examiner`, corps, o),
@@ -144,6 +150,7 @@ export const api = {
   document: (id, o) => lire(`/documents/${encodeURIComponent(id)}`, null, o),
 
   alertes: (p, o) => lire('/alertes', p, o),
+  alerte: (id, o) => lire(`/alertes/${encodeURIComponent(id)}`, null, o),
   traiterAlerte: (id, corps, o) => poster(`/alertes/${encodeURIComponent(id)}/traiter`, corps, o),
 
   tableauDeBord: (o) => lire('/tableau-de-bord', null, o),

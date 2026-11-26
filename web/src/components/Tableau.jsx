@@ -50,6 +50,10 @@ export default function Tableau({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lignes, tri, colonnes])
 
+  // Dès qu'une colonne annonce sa largeur, le tableau la tient : les cellules
+  // sont coupées, jamais repliées, et rien ne déborde du bloc.
+  const estFixe = colonnes.some((c) => c.largeur)
+
   function basculer(cle) {
     setTri((actuel) =>
       actuel?.cle === cle
@@ -61,7 +65,7 @@ export default function Tableau({
   return (
     <div className="tableau-enveloppe">
       <div className="tableau-defilement">
-        <table className="tableau">
+        <table className={clsx('tableau', estFixe && 'est-fixe')}>
           <thead>
             <tr>
               {colonnes.map((colonne) => {
