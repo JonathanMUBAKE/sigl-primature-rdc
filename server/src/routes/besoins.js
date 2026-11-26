@@ -10,14 +10,14 @@
 // RG-006 (clôture), RG-017/RG-018 (portée), RG-019 (document figé),
 // RG-020 (journal avant confirmation).
 
-import { tous, un, transaction } from '../db.js';
 import {
-  ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture,
+  ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture, viser,
 } from './_droits.js';
 import {
   appliquer, appliquerToutes, donneesInvalides, liste, nonAutorise, nonTrouve,
   pagination, schemaIdParam, schemaPagination,
 } from './_commun.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
 import { journaliserDepuis } from './_journal.js';
 import { prochainNumero } from './_numeros.js';
 import { publier } from './_flux.js';
@@ -102,8 +102,8 @@ export default async function routesBesoins(app) {
       ou += ` and (lower(e.numero) like $${params.length} or lower(coalesce(e.justification, '')) like $${params.length})`;
     }
 
-    const total = await un(`select count(*)::int as n from etat_besoin e ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from etat_besoin e ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select e.id, e.numero, e.statut, e.justification, e.cree_le, e.vise_le, e.examine_le,
               e.motif_decision, e.accuse_le, e.clos_le,
               e.structure_id, s.code as structure_code, s.nom as structure_nom, s.regime as structure_regime,
@@ -132,7 +132,7 @@ export default async function routesBesoins(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const besoin = await chargerBesoin(request.params.id);
+    const besoin = await chargerBesoin(request, request.params.id);
     await verifierLecture(request, besoin.structure_id);
     return besoin;
   });
@@ -175,7 +175,7 @@ export default async function routesBesoins(app) {
     // Le demandeur est un agent de la structure demandeuse : par défaut, celui
     // qui saisit. Un autre n'est accepté que dans la même structure.
     const demandeurId = corps.demandeur_id ?? request.agent.id;
-    const demandeur = await un(
+    const demandeur = await lireUn(request, 
       'select id, nom, structure_id from agent where id = $1 and structure_id = $2',
       [demandeurId, corps.structure_id],
     );
@@ -187,7 +187,7 @@ export default async function routesBesoins(app) {
     }
 
     const codes = [...new Set(corps.lignes.map((l) => l.categorie_code))];
-    const connues = await tous(
+    const connues = await lireTous(request, 
       `select code from categorie where code = any($1::text[])`,
       [codes],
     );
@@ -199,7 +199,7 @@ export default async function routesBesoins(app) {
       );
     }
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('etat_besoin');
       await journaliserDepuis(request, {
         action: 'creation_besoin',
@@ -208,7 +208,7 @@ export default async function routesBesoins(app) {
         avant: null,
         apres: { numero, structure_id: corps.structure_id, demandeur_id: demandeurId, lignes: corps.lignes.length },
       });
-      const besoin = await un(
+      const besoin = await lireUn(request, 
         `insert into etat_besoin (numero, structure_id, demandeur_id, statut, justification)
          values ($1, $2, $3, 'brouillon', $4) returning *`,
         [numero, corps.structure_id, demandeurId, corps.justification ?? null],
@@ -216,7 +216,7 @@ export default async function routesBesoins(app) {
       let rang = 0;
       for (const ligne of corps.lignes) {
         rang += 1;
-        await un(
+        await lireUn(request, 
           `insert into ligne_besoin (etat_besoin_id, structure_id, categorie_code, designation,
                                      quantite_demandee, motif, rang)
            values ($1,$2,$3,$4,$5,$6,$7)`,
@@ -229,7 +229,7 @@ export default async function routesBesoins(app) {
 
     publier({ type: 'creation', objet: 'besoin', id: resultat.id, structure_id: resultat.structure_id });
     reply.code(201);
-    return chargerBesoin(resultat.id);
+    return chargerBesoin(request, resultat.id);
   });
 
   // --- Le visa : RG-001, RG-002 ----------------------------------------
@@ -238,7 +238,8 @@ export default async function routesBesoins(app) {
     schema: {
       params: schemaIdParam,
       body: {
-        type: 'object',
+        // Le visa peut venir sans corps : le bouton « Viser » n'a rien à saisir.
+        type: ['object', 'null'],
         additionalProperties: false,
         properties: {
           justification: { type: ['string', 'null'], maxLength: 2000 },
@@ -248,7 +249,7 @@ export default async function routesBesoins(app) {
       },
     },
   }, async (request) => {
-    const besoin = await chargerBesoin(request.params.id);
+    const besoin = await chargerBesoin(request, request.params.id);
     await verifierEcritureStructure(request, besoin.structure_id);
     if (besoin.statut !== 'brouillon') {
       throw donneesInvalides(
@@ -257,14 +258,15 @@ export default async function routesBesoins(app) {
       );
     }
 
-    const justification = request.body.justification ?? besoin.justification;
+    const corpsVisa = request.body ?? {};
+    const justification = corpsVisa.justification ?? besoin.justification;
     // RG-001 puis RG-002 : la justification d'abord, la séparation des fonctions ensuite.
     appliquerToutes([
       rg001({ justification }),
       rg002({ demandeur_id: besoin.demandeur_id, viseur_id: request.agent.id }),
     ]);
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'visa_besoin',
         objet_type: 'etat_besoin',
@@ -274,11 +276,11 @@ export default async function routesBesoins(app) {
           statut: 'vise',
           justification,
           viseur_id: request.agent.id,
-          visa_a_posteriori: request.body.visa_a_posteriori ?? false,
-          motif_visa_a_posteriori: request.body.motif_visa_a_posteriori ?? null,
+          visa_a_posteriori: corpsVisa.visa_a_posteriori ?? false,
+          motif_visa_a_posteriori: corpsVisa.motif_visa_a_posteriori ?? null,
         },
       });
-      return un(
+      return lireUn(request, 
         `update etat_besoin set statut = 'vise', justification = $2, vise_le = now(), viseur_id = $3
           where id = $1 returning *`,
         [besoin.id, justification, request.agent.id],
@@ -286,7 +288,7 @@ export default async function routesBesoins(app) {
     });
 
     publier({ type: 'visa', objet: 'besoin', id: resultat.id, structure_id: resultat.structure_id });
-    return chargerBesoin(resultat.id);
+    return chargerBesoin(request, resultat.id);
   });
 
   // --- L'examen : RG-003, RG-004, puis l'aiguillage ligne par ligne ----
@@ -320,10 +322,12 @@ export default async function routesBesoins(app) {
       },
     },
   }, async (request) => {
-    const besoin = await chargerBesoin(request.params.id);
+    const besoin = await chargerBesoin(request, request.params.id);
     // L'examen est central : il porte sur une structure, autonome comprise, mais
     // il n'écrit pas dans son patrimoine — il décide de la suite de sa demande.
     await verifierLecture(request, besoin.structure_id);
+    // L'examen écrit dans l'état de besoin de la structure demandeuse.
+    viser(request, besoin.structure_id);
     if (!['vise', 'recu'].includes(besoin.statut)) {
       throw donneesInvalides(
         `Cet état de besoin est au statut « ${besoin.statut} » : on examine un état visé ou reçu.`,
@@ -357,7 +361,7 @@ export default async function routesBesoins(app) {
     }
 
     // L'état du magasin du périmètre, pour l'aiguillage.
-    const stocks = await tous(
+    const stocks = await lireTous(request, 
       `select st.id, st.categorie_code, st.designation, st.quantite, st.site_id, si.nom as site_nom
          from stock st join site si on si.id = st.site_id
         where st.structure_id = $1`,
@@ -416,7 +420,7 @@ export default async function routesBesoins(app) {
 
     const statut = decision === 'rejet' ? 'rejete' : statutApresExamen(aiguillage);
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'examen_besoin',
         objet_type: 'etat_besoin',
@@ -432,13 +436,13 @@ export default async function routesBesoins(app) {
       });
 
       for (const ligne of aiguillage) {
-        await un(
+        await lireUn(request, 
           `update ligne_besoin set quantite_accordee = $2, origine = $3, motif = $4 where id = $1`,
           [ligne.id, ligne.quantite_accordee, ligne.origine, ligne.motif ?? null],
         );
       }
 
-      const majBesoin = await un(
+      const majBesoin = await lireUn(request, 
         `update etat_besoin set statut = $2, examine_le = now(), examinateur_id = $3, motif_decision = $4
           where id = $1 returning *`,
         [besoin.id, statut, request.agent.id, motif],
@@ -446,7 +450,7 @@ export default async function routesBesoins(app) {
 
       // La décision est une pièce : elle est figée dès son émission (RG-019).
       const numero = await prochainNumero('decision_examen');
-      const document = await un(
+      const document = await lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige)
          values ('decision_examen', $1, $2, 'etat_besoin', $3, $4, $5, now(), true) returning *`,
@@ -473,7 +477,7 @@ export default async function routesBesoins(app) {
 
     publier({ type: 'examen', objet: 'besoin', id: besoin.id, structure_id: besoin.structure_id, donnees: { statut } });
 
-    const complet = await chargerBesoin(besoin.id);
+    const complet = await chargerBesoin(request, besoin.id);
     return {
       ...complet,
       decision: { decision, motif, statut, document: resultat.document.numero },
@@ -495,7 +499,7 @@ export default async function routesBesoins(app) {
     schema: {
       params: schemaIdParam,
       body: {
-        type: 'object',
+        type: ['object', 'null'],
         additionalProperties: false,
         properties: {
           observations: { type: ['string', 'null'], maxLength: 2000 },
@@ -517,7 +521,7 @@ export default async function routesBesoins(app) {
       },
     },
   }, async (request) => {
-    const besoin = await chargerBesoin(request.params.id);
+    const besoin = await chargerBesoin(request, request.params.id);
     await verifierEcritureStructure(request, besoin.structure_id);
     if (['brouillon', 'rejete', 'clos'].includes(besoin.statut)) {
       throw donneesInvalides(
@@ -534,7 +538,7 @@ export default async function routesBesoins(app) {
       );
     }
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('accuse_reception');
       await journaliserDepuis(request, {
         action: 'accuse_besoin',
@@ -543,7 +547,7 @@ export default async function routesBesoins(app) {
         avant: { statut: besoin.statut, accuse_le: besoin.accuse_le },
         apres: { statut: 'livre', accuse: numero, signataire_id: request.agent.id },
       });
-      const accuse = await un(
+      const accuse = await lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige)
          values ('accuse_reception', $1, $2, 'etat_besoin', $3, $4, $5, now(), true) returning *`,
@@ -551,14 +555,14 @@ export default async function routesBesoins(app) {
           numero, besoin.structure_id, String(besoin.id),
           JSON.stringify({
             etat_besoin: besoin.numero,
-            observations: request.body.observations ?? null,
-            lignes_recues: request.body.lignes_recues ?? [],
+            observations: (request.body ?? {}).observations ?? null,
+            lignes_recues: (request.body ?? {}).lignes_recues ?? [],
             signataire: request.agent.nom,
           }),
           request.agent.id,
         ],
       );
-      const majBesoin = await un(
+      const majBesoin = await lireUn(request, 
         `update etat_besoin set statut = 'livre', accuse_le = now() where id = $1 returning *`,
         [besoin.id],
       );
@@ -566,10 +570,10 @@ export default async function routesBesoins(app) {
     });
 
     let clos = null;
-    if (request.body.clore !== false) {
+    if ((request.body ?? {}).clore !== false) {
       // RG-006 : la clôture n'a lieu qu'au vu de l'accusé signé.
       appliquer(rg006({ accuse: resultat.accuse }));
-      clos = await transaction(async () => {
+      clos = await enEcriture(request, async () => {
         await journaliserDepuis(request, {
           action: 'cloture_besoin',
           objet_type: 'etat_besoin',
@@ -577,7 +581,7 @@ export default async function routesBesoins(app) {
           avant: { statut: 'livre' },
           apres: { statut: 'clos', accuse: resultat.accuse.numero },
         });
-        return un(
+        return lireUn(request, 
           `update etat_besoin set statut = 'clos', clos_le = now() where id = $1 returning *`,
           [besoin.id],
         );
@@ -591,7 +595,7 @@ export default async function routesBesoins(app) {
       structure_id: besoin.structure_id,
     });
 
-    return { ...(await chargerBesoin(besoin.id)), accuse_reception: resultat.accuse };
+    return { ...(await chargerBesoin(request, besoin.id)), accuse_reception: resultat.accuse };
   });
 
   // --- La clôture séparée, quand l'accusé existe déjà : RG-006 --------
@@ -599,9 +603,9 @@ export default async function routesBesoins(app) {
     preHandler: ecriture('chef_structure', 'logistique', 'intendant', 'comptable_matieres'),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const besoin = await chargerBesoin(request.params.id);
+    const besoin = await chargerBesoin(request, request.params.id);
     await verifierEcritureStructure(request, besoin.structure_id);
-    const accuse = await un(
+    const accuse = await lireUn(request, 
       `select * from document
         where type = 'accuse_reception' and objet_type = 'etat_besoin' and objet_id = $1
         order by cree_le desc limit 1`,
@@ -611,7 +615,7 @@ export default async function routesBesoins(app) {
     // RG-019 : on ne retouche pas l'accusé pour clore, on s'appuie sur lui.
     appliquer(rg019({ document: accuse, operation: 'lecture' }));
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'cloture_besoin',
         objet_type: 'etat_besoin',
@@ -619,7 +623,7 @@ export default async function routesBesoins(app) {
         avant: { statut: besoin.statut },
         apres: { statut: 'clos', accuse: accuse.numero },
       });
-      return un(
+      return lireUn(request, 
         `update etat_besoin set statut = 'clos', clos_le = now() where id = $1 returning *`,
         [besoin.id],
       );
@@ -630,8 +634,8 @@ export default async function routesBesoins(app) {
 }
 
 /** Charge un état de besoin, ses lignes et ses pièces. */
-async function chargerBesoin(id) {
-  const besoin = await un(
+async function chargerBesoin(request, id) {
+  const besoin = await lireUn(request, 
     `select e.*, s.code as structure_code, s.nom as structure_nom, s.regime as structure_regime,
             d.nom as demandeur_nom, d.fonction as demandeur_fonction,
             v.nom as viseur_nom, x.nom as examinateur_nom
@@ -644,14 +648,14 @@ async function chargerBesoin(id) {
     [id],
   );
   if (!besoin) throw nonTrouve('Cet état de besoin');
-  const lignes = await tous(
+  const lignes = await lireTous(request, 
     `select l.id, l.categorie_code, c.libelle as categorie_libelle, l.designation,
             l.quantite_demandee, l.quantite_accordee, l.motif, l.origine, l.rang
        from ligne_besoin l join categorie c on c.code = l.categorie_code
       where l.etat_besoin_id = $1 order by l.rang, l.designation`,
     [id],
   );
-  const documents = await tous(
+  const documents = await lireTous(request, 
     `select id, type, numero, signataire_id, signe_le, fige, cree_le
        from document where objet_type = 'etat_besoin' and objet_id = $1 order by cree_le desc`,
     [String(id)],

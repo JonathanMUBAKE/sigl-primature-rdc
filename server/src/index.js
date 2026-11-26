@@ -1,7 +1,7 @@
 // index.js — le démarrage du serveur SIGL.
 
 import { construireApp } from './app.js';
-import { ouvrir, fermer } from './db.js';
+import { verifierConnexion, fermer } from './db.js';
 import { demarrerEcoute } from './routes/_flux.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -10,9 +10,10 @@ const HOTE = process.env.HOTE ?? '0.0.0.0';
 const app = await construireApp({ logger: { level: process.env.NIVEAU_JOURNAL ?? 'info' } });
 
 try {
-  // La base d'abord : les migrations sont jouées avant la première requête.
-  await ouvrir();
-  app.log.info('Base ouverte, migrations à jour.');
+  // La base d'abord. Les migrations sont appliquées par le CLI Supabase,
+  // pas par le serveur : on vérifie seulement que la connexion répond.
+  await verifierConnexion();
+  app.log.info('Connexion à la base vérifiée.');
   // Puis l'écoute des notifications, qui alimente le flux temps réel.
   await demarrerEcoute(app.log);
   await app.listen({ port: PORT, host: HOTE });

@@ -11,11 +11,17 @@ Décisions prises le 27 novembre 2026 par le chef de projet technico-administrat
 
 ## 1. La pile
 
+> **Mise à jour du 27 novembre 2026.** PGlite a été remplacé par **Supabase en local, par Docker**,
+> à la demande du client. Le schéma vit désormais dans `supabase/migrations/`, qui est la source de
+> vérité ; `server/migrations/` a été supprimé pour qu'il n'y ait qu'une copie. La base locale est
+> `postgresql://postgres:postgres@127.0.0.1:55322/postgres`, surchargeable par `DATABASE_URL`.
+> Le temps réel passe par la publication `supabase_realtime` et un flux SSE côté serveur.
+
 | Couche | Choix | Pourquoi |
 |---|---|---|
 | Exécution | Node.js 22+, modules ES | Standard de la maison |
 | Serveur | Fastify 5 | Léger, rapide, schémas JSON natifs |
-| Base | PostgreSQL — **PGlite en local**, Supabase en production | Même SQL des deux côtés, aucun service à installer pour développer |
+| Base | **PostgreSQL via Supabase**, en local par Docker et en production | Realtime, sécurité au niveau des lignes et authentification fournis d'office |
 | Accès données | SQL écrit à la main, requêtes paramétrées | Pas d'ORM : le modèle est comptable, il doit rester lisible |
 | Interface | React 19 + Vite + Tailwind 4 | Standard de la maison |
 | Tests | `node:test` + `node:assert` | Aucune dépendance de plus |
@@ -24,8 +30,10 @@ Décisions prises le 27 novembre 2026 par le chef de projet technico-administrat
 **Arborescence**
 
 ```
+supabase/
+  config.jsonc       projet sigl-primature, ports 553xx
+  migrations/        20261127000100_socle.sql … source de vérité du schéma
 server/
-  migrations/        001_socle.sql, 002_patrimoine.sql, …
   src/
     db.js            connexion, migrations, requêtes
     app.js           assemblage Fastify

@@ -8,7 +8,7 @@
 // certificat. L'invariant « qui réceptionne ne valide pas sa propre réception »
 // est tenu ici même.
 
-import { tous, un, transaction } from '../db.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
 import { ecriture, lecture, verifierEcritureStructure } from './_droits.js';
 import {
   appliquer, donneesInvalides, liste, nonAutorise, nonTrouve, pagination,
@@ -47,8 +47,8 @@ export default async function routesReceptions(app) {
     if (request.query.signe !== undefined) {
       ou += request.query.signe ? ' and d.signe_le is not null' : ' and d.signe_le is null';
     }
-    const total = await un(`select count(*)::int as n from document d ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from document d ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select d.id, d.numero, d.objet_type, d.objet_id, d.contenu, d.signe_le, d.fige, d.cree_le,
               d.structure_id, s.code as structure_code, a.nom as signataire_nom,
               exists (select 1 from document c
@@ -98,7 +98,7 @@ export default async function routesReceptions(app) {
       },
     },
   }, async (request, reply) => {
-    const bon = await un(
+    const bon = await lireUn(request, 
       `select bc.*, f.denomination as fournisseur_nom, d.numero as dossier_numero, d.objet,
               e.structure_id
          from bon_commande bc
@@ -118,7 +118,7 @@ export default async function routesReceptions(app) {
 
     // Invariant : qui engage ne réceptionne pas. Le bon de commande est signé
     // par celui qui l'a émis ; il ne signe pas le PV de sa propre commande.
-    const bonDocument = await un(
+    const bonDocument = await lireUn(request, 
       `select signataire_id from document
         where type = 'bon_commande' and objet_type = 'bon_commande' and objet_id = $1
         order by cree_le desc limit 1`,
@@ -141,7 +141,7 @@ export default async function routesReceptions(app) {
         observation: l.observation ?? null,
       }));
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('pv_reception');
       await journaliserDepuis(request, {
         action: 'reception',
@@ -156,7 +156,7 @@ export default async function routesReceptions(app) {
         },
       });
       // Le PV est figé dès son émission : on ne le modifie plus (RG-019).
-      const pv = await un(
+      const pv = await lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige)
          values ('pv_reception', $1, $2, 'bon_commande', $3, $4, $5, now(), true) returning *`,
@@ -176,7 +176,7 @@ export default async function routesReceptions(app) {
           request.agent.id,
         ],
       );
-      const majBon = await un(
+      const majBon = await lireUn(request, 
         `update bon_commande set statut = $2, livre_le = now() where id = $1 returning *`,
         [bon.id, ecarts.length > 0 ? 'livre_partiel' : 'receptionne'],
       );
@@ -186,7 +186,7 @@ export default async function routesReceptions(app) {
     // L'écart commandé / livré ouvre un examen, il ne décide rien (RG-022).
     let alerte = null;
     if (ecarts.length > 0) {
-      alerte = await leverAlerte({
+      alerte = await enEcriture(request, () => leverAlerte({
         code: 'ECART_RECEPTION',
         gravite: 'attention',
         structure_id: structureId,
@@ -194,7 +194,7 @@ export default async function routesReceptions(app) {
         objet_id: String(bon.id),
         explication: "Des quantités reçues s'écartent des quantités commandées, ou des articles sont non conformes : instruisez l'écart avant la prise en charge.",
         donnees: { bon_commande: bon.numero, ecarts },
-      });
+      }));
     }
 
     publier({ type: 'reception', objet: 'document', id: resultat.pv.id, structure_id: structureId, donnees: { bon_commande: bon.numero, ecarts: ecarts.length } });
@@ -232,7 +232,7 @@ export default async function routesReceptions(app) {
       },
     },
   }, async (request, reply) => {
-    const bon = await un(
+    const bon = await lireUn(request, 
       `select bc.*, f.denomination as fournisseur_nom, d.numero as dossier_numero, d.objet,
               e.structure_id
          from bon_commande bc
@@ -248,8 +248,8 @@ export default async function routesReceptions(app) {
 
     // RG-010 — le certificat ne s'émet qu'après un PV de réception signé.
     const pv = request.body.pv_reception_id
-      ? await un(`select * from document where id = $1 and type = 'pv_reception'`, [request.body.pv_reception_id])
-      : await un(
+      ? await lireUn(request, `select * from document where id = $1 and type = 'pv_reception'`, [request.body.pv_reception_id])
+      : await lireUn(request, 
         `select * from document
           where type = 'pv_reception' and objet_type = 'bon_commande' and objet_id = $1
           order by cree_le desc limit 1`,
@@ -267,7 +267,7 @@ export default async function routesReceptions(app) {
       );
     }
 
-    const dejaCertifie = await un(
+    const dejaCertifie = await lireUn(request, 
       `select numero from document
         where type = 'certificat_prise_en_charge' and objet_type = 'bon_commande' and objet_id = $1
         order by cree_le desc limit 1`,
@@ -280,7 +280,7 @@ export default async function routesReceptions(app) {
       );
     }
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('certificat_prise_en_charge');
       await journaliserDepuis(request, {
         action: 'prise_en_charge',
@@ -295,7 +295,7 @@ export default async function routesReceptions(app) {
         },
       });
 
-      const certificat = await un(
+      const certificat = await lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige, parent_document_id)
          values ('certificat_prise_en_charge', $1, $2, 'bon_commande', $3, $4, $5, now(), true, $6)
@@ -320,7 +320,7 @@ export default async function routesReceptions(app) {
       // L'entrée au magasin des articles de stock pris en charge.
       const entrees = [];
       for (const article of request.body.articles ?? []) {
-        const stock = await un('select * from stock where id = $1', [article.stock_id]);
+        const stock = await lireUn(request, 'select * from stock where id = $1', [article.stock_id]);
         if (!stock) throw nonTrouve("Un des articles de stock pris en charge");
         if (String(stock.structure_id) !== String(structureId)) {
           throw donneesInvalides(
@@ -336,7 +336,7 @@ export default async function routesReceptions(app) {
           avant: { quantite: stock.quantite },
           apres: { quantite: nouvelle, quantite_entree: article.quantite, certificat: numero },
         });
-        const maj = await un(
+        const maj = await lireUn(request, 
           'update stock set quantite = $2, maj_le = now() where id = $1 returning *',
           [stock.id, nouvelle],
         );

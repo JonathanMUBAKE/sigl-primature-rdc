@@ -2,6 +2,7 @@
 // examen, un humain tranche, et la suite est conservée.
 // Lever une alerte n'écrit donc jamais dans un objet métier.
 
+
 import { un } from '../db.js';
 
 /**

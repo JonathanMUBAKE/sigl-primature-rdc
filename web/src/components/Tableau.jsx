@@ -19,6 +19,7 @@ export default function Tableau({
   surClic,
   ligneSignalee,
   ligneMarquee,
+  ligneChoisie,
   triInitial,
   pied,
   nomDesLignes = 'ligne',
@@ -84,7 +85,7 @@ export default function Tableau({
                         title={`Trier par ${colonne.titre}`}
                       >
                         {colonne.titre}
-                        <Fleche size={12} aria-hidden="true" />
+                        <Fleche className="tableau-tri-fleche" size={12} aria-hidden="true" />
                       </button>
                     )}
                   </th>
@@ -107,6 +108,7 @@ export default function Tableau({
                   surClic && 'est-cliquable',
                   ligneSignalee?.(ligne) && 'est-signalee',
                   ligneMarquee?.(ligne) && 'vient-de-changer',
+                  ligneChoisie?.(ligne) && 'est-choisie',
                 )}
                 onClick={surClic ? () => surClic(ligne) : undefined}
                 tabIndex={surClic ? 0 : undefined}

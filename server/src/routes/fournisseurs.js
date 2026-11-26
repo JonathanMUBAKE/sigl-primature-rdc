@@ -2,7 +2,7 @@
 // tout bon de commande vers un fournisseur qui y figure, et la fiche dit
 // pourquoi il y est.
 
-import { tous, un, transaction } from '../db.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
 import { ecriture, lecture } from './_droits.js';
 import { donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
@@ -43,8 +43,8 @@ export default async function routesFournisseurs(app) {
       params.push(request.query.categorie);
       ou += ` and $${params.length} = any(f.categories)`;
     }
-    const total = await un(`select count(*)::int as n from fournisseur f ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from fournisseur f ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select f.*,
               (select count(*)::int from bon_commande bc where bc.fournisseur_id = f.id) as nombre_commandes,
               (select coalesce(sum(bc.montant), 0) from bon_commande bc where bc.fournisseur_id = f.id) as montant_commande
@@ -60,9 +60,9 @@ export default async function routesFournisseurs(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const fournisseur = await un('select * from fournisseur where id = $1', [request.params.id]);
+    const fournisseur = await lireUn(request, 'select * from fournisseur where id = $1', [request.params.id]);
     if (!fournisseur) throw nonTrouve('Ce fournisseur');
-    const commandes = await tous(
+    const commandes = await lireTous(request, 
       `select bc.id, bc.numero, bc.montant, bc.statut, bc.emis_le, d.numero as dossier_numero, d.procedure
          from bon_commande bc join dossier_achat d on d.id = bc.dossier_id
         where bc.fournisseur_id = $1 order by bc.emis_le desc limit 50`,
@@ -87,7 +87,7 @@ export default async function routesFournisseurs(app) {
       },
     },
   }, async (request) => {
-    const fournisseur = await un('select * from fournisseur where id = $1', [request.params.id]);
+    const fournisseur = await lireUn(request, 'select * from fournisseur where id = $1', [request.params.id]);
     if (!fournisseur) throw nonTrouve('Ce fournisseur');
     if (request.body.liste_noire && !(request.body.motif ?? '').trim()) {
       throw donneesInvalides(
@@ -95,7 +95,7 @@ export default async function routesFournisseurs(app) {
         'motif',
       );
     }
-    return transaction(async () => {
+    return enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'liste_noire_fournisseur',
         objet_type: 'fournisseur',
@@ -103,7 +103,7 @@ export default async function routesFournisseurs(app) {
         avant: { liste_noire: fournisseur.liste_noire, motif_liste_noire: fournisseur.motif_liste_noire },
         apres: { liste_noire: request.body.liste_noire, motif_liste_noire: request.body.motif ?? null },
       });
-      return un(
+      return lireUn(request, 
         `update fournisseur set liste_noire = $2, motif_liste_noire = $3 where id = $1 returning *`,
         [fournisseur.id, request.body.liste_noire, request.body.liste_noire ? request.body.motif : null],
       );

@@ -8,7 +8,7 @@ import Bouton from './Bouton.jsx'
 export default function Vide({ titre = 'Aucun élément', texte, action }) {
   return (
     <div className="vide">
-      <Inbox size={20} aria-hidden="true" />
+      <Inbox className="vide-icone" size={20} aria-hidden="true" />
       <div className="vide-titre">{titre}</div>
       {texte ? <p className="vide-texte">{texte}</p> : null}
       {action ? <div className="vide-action">{action}</div> : null}

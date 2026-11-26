@@ -4,8 +4,10 @@
 // Le traitement n'écrit donc que le statut, l'instructeur et la suite. Rien
 // d'autre : ni le dossier d'achat, ni le stock, ni l'état de besoin.
 
-import { tous, un, transaction } from '../db.js';
-import { ecriture, lecture, structuresDe, verifierLecture } from './_droits.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
+import {
+  ecriture, lecture, structuresDe, verifierLecture, viser,
+} from './_droits.js';
 import { appliquer, liste, nonTrouve, pagination, schemaIdParam, schemaPagination } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
 import { publier } from './_flux.js';
@@ -61,8 +63,8 @@ export default async function routesAlertes(app) {
     }
     if (request.query.ouvertes) ou += ` and al.statut in ('ouverte', 'en_examen')`;
 
-    const total = await un(`select count(*)::int as n from alerte al ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from alerte al ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select al.*, s.code as structure_code, s.nom as structure_nom, a.nom as traite_par_nom,
               extract(day from now() - al.cree_le)::int as anciennete_jours
          from alerte al
@@ -81,7 +83,7 @@ export default async function routesAlertes(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const alerte = await un(
+    const alerte = await lireUn(request, 
       `select al.*, s.code as structure_code, s.nom as structure_nom, a.nom as traite_par_nom
          from alerte al
          join structure s on s.id = al.structure_id
@@ -110,9 +112,10 @@ export default async function routesAlertes(app) {
       },
     },
   }, async (request) => {
-    const alerte = await un('select * from alerte where id = $1', [request.params.id]);
+    const alerte = await lireUn(request, 'select * from alerte where id = $1', [request.params.id]);
     if (!alerte) throw nonTrouve('Cette alerte');
     await verifierLecture(request, alerte.structure_id);
+    viser(request, alerte.structure_id);
 
     // RG-022 — le traitement n'écrit que le statut, l'instructeur et la suite.
     // Les champs sont énumérés pour que la règle les voie : rien ne passe à côté.
@@ -127,7 +130,7 @@ export default async function routesAlertes(app) {
       },
     }));
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'traitement_alerte',
         objet_type: 'alerte',
@@ -136,7 +139,7 @@ export default async function routesAlertes(app) {
         apres: { statut: request.body.statut, suite: request.body.suite ?? null, traite_par: request.agent.id },
       });
       const tranchee = !['ouverte', 'en_examen'].includes(request.body.statut);
-      return un(
+      return lireUn(request, 
         `update alerte set statut = $2, suite = $3,
                 traite_par = case when $4 then $5::uuid else traite_par end,
                 traite_le = case when $4 then now() else traite_le end

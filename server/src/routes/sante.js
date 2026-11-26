@@ -1,8 +1,8 @@
+import { lireTous, lireUn } from './_sql.js';
 // GET /api/sante — l'état du serveur et de la base, sans droit requis.
 // Elle sert aussi d'écran de sélection de profil : la liste des agents et de
 // leurs rôles, pour la démonstration.
 
-import { tous, un } from '../db.js';
 
 export default async function routesSante(app) {
   app.get('/api/sante', {
@@ -24,7 +24,7 @@ export default async function routesSante(app) {
     let base = 'indisponible';
     let migrations = 0;
     try {
-      const ligne = await un('select count(*)::int as n from migration');
+      const ligne = await lireUn(request, 'select count(*)::int as n from migration');
       migrations = ligne?.n ?? 0;
       base = 'disponible';
     } catch {
@@ -50,8 +50,8 @@ export default async function routesSante(app) {
   });
 
   // Les profils disponibles pour la démonstration : qui peut se présenter.
-  app.get('/api/profils', async () => {
-    const donnees = await tous(
+  app.get('/api/profils', async (request) => {
+    const donnees = await lireTous(request, 
       `select a.id, a.nom, a.fonction, a.email, s.code as structure_code, s.nom as structure_nom,
               s.regime as structure_regime,
               coalesce(array_agg(ar.role_code) filter (where ar.role_code is not null), '{}') as roles

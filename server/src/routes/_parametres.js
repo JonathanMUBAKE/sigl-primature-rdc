@@ -3,12 +3,13 @@
 // `parametre_version` quand il faut juger une décision avec les seuils d'alors
 // (RG-007). Jamais d'une constante.
 
+
 import { un } from '../db.js';
 
 export const CLES = {
   seuilsPassation: ['seuils_passation', 'seuils', 'seuils_marches_publics'],
   seuilSuiviIndividuel: ['seuil_suivi_individuel', 'seuil_immatriculation_individuelle'],
-  fenetreDecoupage: ['fenetre_decoupage_jours', 'fenetre_surveillance_decoupage_jours'],
+  fenetreDecoupage: ['decoupage_marche', 'fenetre_decoupage_jours'],
   delaiAlerte: ['delai_alerte_jours', 'delais_alerte'],
 };
 
@@ -56,6 +57,8 @@ export async function seuilSuiviIndividuel(date = null) {
 /** La fenêtre, en jours, sur laquelle on cherche un découpage d'achat (RG-008). */
 export async function fenetreDecoupageJours() {
   const valeur = await parametreALaDate(CLES.fenetreDecoupage, null);
-  const jours = typeof valeur === 'object' && valeur !== null ? Number(valeur.jours ?? valeur.valeur) : Number(valeur);
+  const jours = typeof valeur === 'object' && valeur !== null
+    ? Number(valeur.fenetre_jours ?? valeur.jours ?? valeur.valeur)
+    : Number(valeur);
   return Number.isFinite(jours) && jours > 0 ? jours : 90;
 }

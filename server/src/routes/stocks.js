@@ -9,7 +9,7 @@
 //
 // RG-005 : aucune sortie supérieure à la quantité existante.
 
-import { tous, un, transaction } from '../db.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
 import { ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture } from './_droits.js';
 import {
   appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
@@ -28,10 +28,10 @@ const TRIS = {
 };
 
 /** La consommation journalière constatée, par article, d'après le journal. */
-async function consommationConstatee(identifiants, jours = FENETRE_CONSOMMATION_JOURS) {
+async function consommationConstatee(request, identifiants, jours = FENETRE_CONSOMMATION_JOURS) {
   if (identifiants.length === 0) return new Map();
   const places = identifiants.map((_, i) => `$${i + 1}`).join(', ');
-  const lignes = await tous(
+  const lignes = await lireTous(request, 
     `select objet_id,
             sum(coalesce((apres->>'quantite_sortie')::numeric, 0)) as sortie_totale,
             count(*)::int as nombre_sorties,
@@ -148,7 +148,7 @@ export default async function routesStocks(app) {
     if (request.query.sous_critique) ou += ' and st.quantite <= st.seuil_critique';
     if (request.query.rupture) ou += ' and st.quantite = 0';
 
-    const total = await un(`select count(*)::int as n from stock st ${ou}`, params);
+    const total = await lireUn(request, `select count(*)::int as n from stock st ${ou}`, params);
     const tri = TRIS[request.query.tri ?? 'criticite'];
 
     // Le tri par criticité se fait en mémoire : il dépend de la couverture
@@ -157,7 +157,7 @@ export default async function routesStocks(app) {
     const limite = sansTri ? Math.min(total.n || 1, 1000) : page.parPage;
     const decalage = sansTri ? 0 : page.decalage;
 
-    const brut = await tous(
+    const brut = await lireTous(request, 
       `select st.id, st.categorie_code, c.libelle as categorie_libelle, st.designation, st.unite,
               st.quantite, st.seuil_minimum, st.seuil_critique, st.structure_id,
               s.code as structure_code, s.nom as structure_nom, st.site_id, si.nom as site_nom,
@@ -172,7 +172,7 @@ export default async function routesStocks(app) {
       [...params, limite, decalage],
     );
 
-    const consommations = await consommationConstatee(brut.map((a) => String(a.id)));
+    const consommations = await consommationConstatee(request, brut.map((a) => String(a.id)));
     let donnees = brut.map((a) => enrichir(a, consommations.get(String(a.id))));
     if (sansTri) {
       donnees.sort((a, b) =>
@@ -198,7 +198,7 @@ export default async function routesStocks(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const article = await un(
+    const article = await lireUn(request, 
       `select st.*, c.libelle as categorie_libelle, s.code as structure_code, s.nom as structure_nom,
               si.nom as site_nom
          from stock st
@@ -211,8 +211,8 @@ export default async function routesStocks(app) {
     if (!article) throw nonTrouve('Cet article de stock');
     await verifierLecture(request, article.structure_id);
 
-    const consommations = await consommationConstatee([String(article.id)]);
-    const historique = await tous(
+    const consommations = await consommationConstatee(request, [String(article.id)]);
+    const historique = await lireTous(request, 
       `select j.horodatage, j.action, j.avant, j.apres, j.agent_id, a.nom as agent_nom
          from journal j left join agent a on a.id = j.agent_id
         where j.objet_type = 'stock' and j.objet_id = $1
@@ -240,7 +240,7 @@ export default async function routesStocks(app) {
       },
     },
   }, async (request, reply) => {
-    const article = await un('select * from stock where id = $1', [request.params.id]);
+    const article = await lireUn(request, 'select * from stock where id = $1', [request.params.id]);
     if (!article) throw nonTrouve('Cet article de stock');
     await verifierEcritureStructure(request, article.structure_id);
 
@@ -251,7 +251,7 @@ export default async function routesStocks(app) {
     }));
 
     const nouvelle = article.quantite - request.body.quantite;
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'sortie_stock',
         objet_type: 'stock',
@@ -265,7 +265,7 @@ export default async function routesStocks(app) {
           beneficiaire_id: request.body.beneficiaire_id ?? null,
         },
       });
-      return un(
+      return lireUn(request, 
         'update stock set quantite = $2, maj_le = now() where id = $1 returning *',
         [article.id, nouvelle],
       );
@@ -281,7 +281,7 @@ export default async function routesStocks(app) {
     });
 
     reply.code(201);
-    return enrichir(resultat, (await consommationConstatee([String(article.id)])).get(String(article.id)));
+    return enrichir(resultat, (await consommationConstatee(request, [String(article.id)])).get(String(article.id)));
   });
 
   // --- Les entrées ----------------------------------------------------
@@ -301,12 +301,12 @@ export default async function routesStocks(app) {
       },
     },
   }, async (request, reply) => {
-    const article = await un('select * from stock where id = $1', [request.params.id]);
+    const article = await lireUn(request, 'select * from stock where id = $1', [request.params.id]);
     if (!article) throw nonTrouve('Cet article de stock');
     await verifierEcritureStructure(request, article.structure_id);
 
     const nouvelle = article.quantite + request.body.quantite;
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'entree_stock',
         objet_type: 'stock',
@@ -319,7 +319,7 @@ export default async function routesStocks(app) {
           bon_commande_id: request.body.bon_commande_id ?? null,
         },
       });
-      return un(
+      return lireUn(request, 
         'update stock set quantite = $2, maj_le = now() where id = $1 returning *',
         [article.id, nouvelle],
       );
@@ -335,7 +335,7 @@ export default async function routesStocks(app) {
     });
 
     reply.code(201);
-    return enrichir(resultat, (await consommationConstatee([String(article.id)])).get(String(article.id)));
+    return enrichir(resultat, (await consommationConstatee(request, [String(article.id)])).get(String(article.id)));
   });
 
   // Les seuils : c'est un réglage de magasin, pas une écriture comptable.
@@ -354,7 +354,7 @@ export default async function routesStocks(app) {
       },
     },
   }, async (request) => {
-    const article = await un('select * from stock where id = $1', [request.params.id]);
+    const article = await lireUn(request, 'select * from stock where id = $1', [request.params.id]);
     if (!article) throw nonTrouve('Cet article de stock');
     await verifierEcritureStructure(request, article.structure_id);
     if (request.body.seuil_critique > request.body.seuil_minimum) {
@@ -363,7 +363,7 @@ export default async function routesStocks(app) {
         'seuil_critique',
       );
     }
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'reglage_seuils_stock',
         objet_type: 'stock',
@@ -371,7 +371,7 @@ export default async function routesStocks(app) {
         avant: { seuil_minimum: article.seuil_minimum, seuil_critique: article.seuil_critique },
         apres: { seuil_minimum: request.body.seuil_minimum, seuil_critique: request.body.seuil_critique },
       });
-      return un(
+      return lireUn(request, 
         'update stock set seuil_minimum = $2, seuil_critique = $3, maj_le = now() where id = $1 returning *',
         [article.id, request.body.seuil_minimum, request.body.seuil_critique],
       );

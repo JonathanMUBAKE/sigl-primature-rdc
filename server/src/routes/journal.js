@@ -5,7 +5,7 @@
 // (IGF, Cour des comptes) le lit en entier ; les autres rôles n'y accèdent
 // qu'au travers de l'historique de l'objet qu'ils consultent.
 
-import { tous, un } from '../db.js';
+import { lireTous, lireUn } from './_sql.js';
 import { lecture } from './_droits.js';
 import { liste, pagination, schemaPagination } from './_commun.js';
 
@@ -56,8 +56,8 @@ export default async function routesJournal(app) {
       ou += ` and (lower(j.action) like $${params.length} or lower(coalesce(j.objet_id, '')) like $${params.length})`;
     }
 
-    const total = await un(`select count(*)::int as n from journal j ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from journal j ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select j.id, j.horodatage, j.action, j.objet_type, j.objet_id, j.avant, j.apres, j.ip,
               j.agent_id, a.nom as agent_nom, a.fonction as agent_fonction,
               s.code as structure_code, s.nom as structure_nom
@@ -75,8 +75,8 @@ export default async function routesJournal(app) {
   // Les actions distinctes, pour alimenter le filtre de l'écran de contrôle.
   app.get('/api/journal/actions', {
     preHandler: lecture('controle_externe', 'direction'),
-  }, async () => {
-    const donnees = await tous(
+  }, async (request) => {
+    const donnees = await lireTous(request, 
       `select action, objet_type, count(*)::int as nombre, max(horodatage) as derniere
          from journal group by action, objet_type order by nombre desc`,
     );

@@ -220,3 +220,64 @@ reste à décider avec la Primature. Cette décision-ci ne présume de rien à c
 6. [ ] Soumettre cet ADR au propriétaire métier **et aux comptables publics des établissements
        autonomes** : ce sont eux que la décision engage, et leur accord vaut mieux que notre
        interprétation du décret.
+
+---
+
+## Amendement du 27 novembre 2026 — ce que l'implémentation a corrigé
+
+**Statut : Accepté, avec les corrections ci-dessous.**
+
+L'ADR a été implémenté. Trois choses que j'avais écrites étaient fausses, et c'est l'épreuve de la
+base qui les a montrées. Elles sont consignées ici plutôt que corrigées en silence : un ADR qui
+raconte la décision qu'on aurait aimé prendre ne sert à rien.
+
+### 1. `set_config` seul ne filtre rien
+
+J'avais écrit que poser le contexte de session avec `set_config` suffisait. C'est faux. **Le RLS ne
+s'applique pas à un rôle porteur de `rolbypassrls`**, et `force row level security` n'y change rien.
+Sous Supabase, le rôle `postgres` n'est pas superutilisateur mais porte tout de même ce privilège :
+toutes mes vérifications initiales passaient donc pour de mauvaises raisons.
+
+La pièce maîtresse n'est pas le contexte, c'est la **bascule de rôle** : `set local role sigl_agent`
+à l'ouverture de chaque transaction. Le contexte dit *qui* ; la bascule dit *sous quelle autorité*.
+Sans la seconde, la première est décorative.
+
+Il a fallu en outre `grant sigl_agent, sigl_consolidation to postgres`, sans quoi la bascule échoue —
+`postgres` n'étant pas superutilisateur sous Supabase, il ne peut pas prendre un rôle qu'on ne lui a
+pas donné.
+
+### 2. La politique de lecture que j'avais spécifiée était incohérente
+
+Plus grave, parce que c'était une erreur de conception et pas d'exécution. J'avais défini la lecture
+et l'écriture sur des portées différentes. Conséquence : **une écriture légitime du niveau central
+vers une structure intégrée était acceptée, puis invisible à son auteur** — tout `insert … returning`
+échouait, alors que l'écriture avait bien eu lieu.
+
+La correction : lecture et écriture partagent la même portée — la structure de l'agent **et ses
+filles**, calculée récursivement par `sigl_portee_structures()`. L'écriture exige en plus que la
+structure visée soit de régime `integre`.
+
+Le résultat tient la règle d'origine, et mieux qu'elle : **un établissement autonome n'est ni lu ni
+écrit d'en haut, même lorsqu'il est rattaché.** La hiérarchie des structures ne perce pas la
+frontière juridique.
+
+### 3. Ce qui le prouve
+
+`server/src/isolation.test.js` l'établit par la base, pas par le code : une structure sœur et une
+structure mère sont hors portée, le déplacement d'une ligne vers un périmètre interdit est refusé, la
+consolidation ne peut qu'être lue, et le rôle ne fuit pas d'une transaction à la suivante.
+
+Le point d'action 5 — isoler la consolidation dans `server/src/consolidation.js` — reste ouvert.
+
+### 4. Une dette de sécurité à solder avant toute mise en service
+
+Le jeu de démonstration s'insère sous `postgres`, qui porte `rolbypassrls`. **C'est le seul chemin du
+dépôt qui contourne l'isolation, et il doit être fermé en production.** Il est signalé ici pour qu'on
+ne le découvre pas à l'audit.
+
+### Ce que j'en retiens
+
+La décision d'architecture était la bonne — l'isolation tenue par la base vaut mieux que l'isolation
+tenue par la discipline. Mais j'avais vérifié la disponibilité du mécanisme sans vérifier son
+efficacité réelle sous le rôle qui l'exécute. Constater qu'une fonctionnalité existe n'est pas
+constater qu'elle protège.

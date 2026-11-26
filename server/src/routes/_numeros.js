@@ -2,6 +2,7 @@
 // (contrat §1-6). Les compteurs vivent dans `sequence_document` et
 // `sequence_immatriculation`.
 
+
 import { un } from '../db.js';
 
 export const PREFIXES = {

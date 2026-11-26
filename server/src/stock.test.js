@@ -73,7 +73,8 @@ const quantiteActuelle = () => enPrivilegie((bd) => bd.valeur(
 
 const alertes = (code) => enPrivilegie((bd) => bd.tous(
   `select code, gravite, statut, donnees from alerte
-   where objet_type = 'stock' and objet_id = $1 and ($2 is null or code = $2)
+   where objet_type = 'stock' and objet_id = $1
+     and ($2::text is null or code = $2::text)
    order by cree_le`,
   [ligneStock.id, code ?? null],
 ));

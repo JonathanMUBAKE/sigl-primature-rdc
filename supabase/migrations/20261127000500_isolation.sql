@@ -78,24 +78,62 @@ create or replace function sigl_consolide() returns boolean
 $$ select coalesce(nullif(current_setting('sigl.consolidation', true), ''), 'non') = 'oui' $$;
 
 /**
- * La lecture est permise sur sa propre structure, ou en mode consolidation.
- * Sans contexte, la fonction rend faux : la session échoue fermée plutôt que
- * de tout montrer.
+ * La portée d'une session : sa structure et toutes ses filles, de proche en
+ * proche. Le Cabinet voit donc le Secrétariat général, qui voit la CGIG, sans
+ * que la CGIG voie le Cabinet ni sa structure sœur.
+ *
+ * Rend l'ensemble vide quand aucun contexte n'est posé : la session échoue
+ * fermée plutôt que de tout montrer.
+ *
+ * `security definer` : la fonction doit parcourir `structure` sans qu'on
+ * accorde ce droit au rôle appelant.
+ */
+create or replace function sigl_portee_structures() returns setof uuid
+  language sql stable security definer set search_path = public as
+$$
+  with recursive descendance as (
+    select s.id, s.regime
+      from structure s
+     where s.id = sigl_structure_courante()
+    union all
+    select enfant.id, enfant.regime
+      from structure enfant
+      join descendance d on enfant.parent_id = d.id
+  )
+  select id from descendance
+$$;
+
+revoke all on function sigl_portee_structures() from public;
+grant execute on function sigl_portee_structures() to sigl_agent, sigl_consolidation;
+
+/**
+ * RG-017, tenue par la base. La lecture est permise sur sa propre structure et
+ * ses filles, ou en mode consolidation. Partout ailleurs, et notamment sur un
+ * établissement autonome dont on n'est pas le comptable, elle ne rend rien.
  */
 create or replace function sigl_lecture_permise(cible uuid) returns boolean
   language sql stable as
-$$ select sigl_consolide() or (cible is not null and cible = sigl_structure_courante()) $$;
+$$
+  select sigl_consolide()
+     or (cible is not null and cible in (select sigl_portee_structures()))
+$$;
 
 /**
  * RG-018, tenue par la base. L'écriture est permise :
- *   - dans sa propre structure, quelle qu'elle soit ;
- *   - dans une structure `integre` depuis le niveau central, car son
- *     patrimoine est celui de la Primature.
- * Elle est refusée dans une structure `autonome` dès que le contexte n'est pas
- * cette structure elle-même, et refusée en mode consolidation.
+ *   - dans sa propre structure, quel que soit son régime — un établissement
+ *     autonome tient sa propre comptabilité des matières ;
+ *   - dans une structure fille **à condition qu'elle soit `integre`**, car son
+ *     patrimoine est celui de la Primature, qui le lui confie.
  *
- * `security definer` : la politique doit pouvoir lire `structure` pour juger du
- * régime, sans qu'on accorde ce droit au rôle appelant.
+ * Elle est refusée dans une structure `autonome` dès que le contexte n'est pas
+ * cette structure elle-même — même si elle est rattachée hiérarchiquement, car
+ * le rattachement administratif ne donne pas la main sur les écritures d'une
+ * personnalité juridique distincte. Elle est refusée en mode consolidation,
+ * qui est une lecture.
+ *
+ * La portée est exactement celle de la lecture, moins les établissements
+ * autonomes : sans cela, une écriture légitime serait acceptée puis invisible
+ * à son auteur, et tout `insert … returning` échouerait.
  */
 create or replace function sigl_ecriture_permise(cible uuid) returns boolean
   language sql stable security definer set search_path = public as
@@ -105,7 +143,10 @@ $$
      and sigl_structure_courante() is not null
      and (
        cible = sigl_structure_courante()
-       or exists (select 1 from structure s where s.id = cible and s.regime = 'integre')
+       or (
+         cible in (select sigl_portee_structures())
+         and exists (select 1 from structure s where s.id = cible and s.regime = 'integre')
+       )
      )
 $$;
 

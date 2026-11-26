@@ -2,7 +2,7 @@
 // Le régime (integre / autonome) est la distinction majeure du modèle : il est
 // toujours rendu, pour que l'interface ne mélange jamais les deux.
 
-import { tous, un } from '../db.js';
+import { lireTous, lireUn } from './_sql.js';
 import { lecture, structuresDe, verifierLecture } from './_droits.js';
 import { liste, nonTrouve, pagination, schemaPagination, schemaIdParam } from './_commun.js';
 
@@ -56,8 +56,8 @@ export default async function routesStructures(app) {
       ou += ` and s.id in (${places})`;
     }
 
-    const total = await un(`select count(*)::int as n from structure s ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from structure s ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select s.id, s.code, s.nom, s.type, s.regime, s.parent_id, s.actif,
               p.code as parent_code, p.nom as parent_nom,
               (select count(*)::int from bien b where b.structure_id = s.id) as nombre_biens,
@@ -76,7 +76,7 @@ export default async function routesStructures(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const structure = await un(
+    const structure = await lireUn(request, 
       `select s.*, p.code as parent_code, p.nom as parent_nom
          from structure s left join structure p on p.id = s.parent_id
         where s.id = $1`,
@@ -84,7 +84,7 @@ export default async function routesStructures(app) {
     );
     if (!structure) throw nonTrouve('Cette structure');
     await verifierLecture(request, structure.id);
-    const sites = await tous(
+    const sites = await lireTous(request, 
       'select id, nom, adresse, ville, actif from site where structure_id = $1 order by nom',
       [structure.id],
     );
@@ -117,8 +117,8 @@ export default async function routesStructures(app) {
       params.push(...permises);
       ou += ` and si.structure_id in (${places})`;
     }
-    const total = await un(`select count(*)::int as n from site si ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from site si ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select si.id, si.nom, si.adresse, si.ville, si.actif, si.structure_id, s.code as structure_code
          from site si join structure s on s.id = si.structure_id
          ${ou}
@@ -153,7 +153,7 @@ export default async function routesStructures(app) {
       params.push(`%${request.query.q.toLowerCase()}%`);
       ou += ` and (lower(libelle) like $${params.length} or lower(code) like $${params.length})`;
     }
-    const donnees = await tous(
+    const donnees = await lireTous(request, 
       `select code, libelle, parent_code, classement, duree_amortissement, unite
          from categorie ${ou} order by code`,
       params,

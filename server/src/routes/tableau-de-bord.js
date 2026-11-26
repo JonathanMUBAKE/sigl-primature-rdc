@@ -9,7 +9,7 @@
 // contrôle externe voient tout ; un chef de structure voit sa structure. Les
 // établissements autonomes apparaissent au central en consolidé.
 
-import { tous, un } from '../db.js';
+import { lireTous, lireUn } from './_sql.js';
 import { lecture, structuresDe } from './_droits.js';
 import { porteeTotale } from '../regles/roles.js';
 
@@ -40,7 +40,7 @@ export default async function routesTableauDeBord(app) {
 
     // --- Ce qui attend une décision ------------------------------------
     const pBesoins = [];
-    const attentes = await tous(
+    const attentes = await lireTous(request, 
       `select e.id, e.numero, e.statut, e.cree_le, e.vise_le, e.structure_id,
               s.code as structure_code, s.nom as structure_nom,
               d.nom as demandeur_nom,
@@ -56,12 +56,12 @@ export default async function routesTableauDeBord(app) {
 
     // Qui doit agir : le chef de la structure pour un brouillon, la logistique
     // centrale pour un état visé. On nomme les personnes, pas les rôles seuls.
-    const chefs = await tous(
+    const chefs = await lireTous(request, 
       `select ar.structure_id, a.id, a.nom, a.fonction
          from agent_role ar join agent a on a.id = ar.agent_id
         where ar.role_code = 'chef_structure' and a.actif`,
     );
-    const logisticiens = await tous(
+    const logisticiens = await lireTous(request, 
       `select a.id, a.nom, a.fonction
          from agent_role ar join agent a on a.id = ar.agent_id
         where ar.role_code = 'logistique' and a.actif`,
@@ -89,7 +89,7 @@ export default async function routesTableauDeBord(app) {
 
     // Les réceptions sans prise en charge : le comptable des matières doit agir.
     const pPec = [];
-    const sansPriseEnCharge = await tous(
+    const sansPriseEnCharge = await lireTous(request, 
       `select pv.id, pv.numero, pv.objet_id as bon_commande_id, pv.cree_le, pv.structure_id,
               s.nom as structure_nom,
               extract(day from now() - pv.cree_le)::int as anciennete_jours
@@ -103,7 +103,7 @@ export default async function routesTableauDeBord(app) {
         order by pv.cree_le asc limit 100`,
       pPec,
     );
-    const comptables = await tous(
+    const comptables = await lireTous(request, 
       `select ar.structure_id, a.id, a.nom from agent_role ar join agent a on a.id = ar.agent_id
         where ar.role_code = 'comptable_matieres' and a.actif`,
     );
@@ -125,7 +125,7 @@ export default async function routesTableauDeBord(app) {
 
     // Les certificats émis dont le paiement n'est pas encore marqué possible.
     const pPaiement = [];
-    const attendPaiement = await tous(
+    const attendPaiement = await lireTous(request, 
       `select c.id, c.numero, c.objet_id as bon_commande_id, c.cree_le, c.structure_id,
               bc.numero as bon_numero, bc.montant, bc.statut as bon_statut,
               extract(day from now() - c.cree_le)::int as anciennete_jours
@@ -137,7 +137,7 @@ export default async function routesTableauDeBord(app) {
         order by c.cree_le asc limit 100`,
       pPaiement,
     );
-    const comptablesPublics = await tous(
+    const comptablesPublics = await lireTous(request, 
       `select a.id, a.nom from agent_role ar join agent a on a.id = ar.agent_id
         where ar.role_code = 'comptable_public' and a.actif`,
     );
@@ -160,7 +160,7 @@ export default async function routesTableauDeBord(app) {
 
     // --- Le délai moyen du besoin à la livraison -----------------------
     const pDelai = [];
-    const delai = await un(
+    const delai = await lireUn(request, 
       `select count(*)::int as nombre,
               round(avg(extract(epoch from (coalesce(e.accuse_le, e.clos_le) - e.cree_le)) / 86400.0)::numeric, 1) as jours_moyens,
               round(min(extract(epoch from (coalesce(e.accuse_le, e.clos_le) - e.cree_le)) / 86400.0)::numeric, 1) as jours_minimum,
@@ -174,7 +174,7 @@ export default async function routesTableauDeBord(app) {
 
     // --- Le patrimoine : par catégorie et par structure ----------------
     const pCat = [];
-    const parCategorie = await tous(
+    const parCategorie = await lireTous(request, 
       `select b.categorie_code, c.libelle, c.classement,
               count(*)::int as nombre,
               sum(b.quantite)::int as quantite,
@@ -188,7 +188,7 @@ export default async function routesTableauDeBord(app) {
       pCat,
     );
     const pStruct = [];
-    const parStructure = await tous(
+    const parStructure = await lireTous(request, 
       `select s.id, s.code, s.nom, s.regime,
               count(b.id)::int as nombre,
               coalesce(sum(b.valeur_acquisition), 0) as valeur,
@@ -208,7 +208,7 @@ export default async function routesTableauDeBord(app) {
 
     // --- Les stocks : seuils et ruptures prévisibles -------------------
     const pStock = [];
-    const stocks = await tous(
+    const stocks = await lireTous(request, 
       `with conso as (
          select j.objet_id as stock_id,
                 sum(coalesce((j.apres->>'quantite_sortie')::numeric, 0)) / ${FENETRE_CONSOMMATION_JOURS}.0 as conso_jour
@@ -257,11 +257,11 @@ export default async function routesTableauDeBord(app) {
     articlesCritiques.sort((a, b) => a.jours_couverture - b.jours_couverture);
 
     // --- Les achats : par procédure, et les écarts ----------------------
-    const dossiersParProcedure = await tous(
+    const dossiersParProcedure = await lireTous(request, 
       `select d.procedure, d.statut, count(*)::int as nombre, coalesce(sum(d.montant_estime), 0) as montant_estime
          from dossier_achat d group by d.procedure, d.statut order by d.procedure`,
     );
-    const ecarts = await un(
+    const ecarts = await lireUn(request, 
       `select coalesce(sum(bc.montant), 0) as montant_commande,
               coalesce(sum(bc.montant) filter (where bc.statut in ('livre', 'livre_partiel', 'receptionne', 'payable', 'paye')), 0) as montant_livre,
               coalesce(sum(bc.montant) filter (where bc.statut in ('receptionne', 'payable', 'paye')), 0) as montant_receptionne,
@@ -273,7 +273,7 @@ export default async function routesTableauDeBord(app) {
 
     // --- Les alertes ouvertes, par gravité -----------------------------
     const pAlertes = [];
-    const alertes = await tous(
+    const alertes = await lireTous(request, 
       `select al.gravite, al.statut, count(*)::int as nombre,
               max(extract(day from now() - al.cree_le))::int as plus_ancienne_jours
          from alerte al
@@ -283,7 +283,7 @@ export default async function routesTableauDeBord(app) {
     );
 
     // --- L'activité des derniers jours ---------------------------------
-    const activite = await tous(
+    const activite = await lireTous(request, 
       `select date_trunc('day', j.horodatage)::date as jour, j.action, count(*)::int as nombre
          from journal j
         where j.horodatage > now() - ($1 || ' days')::interval
@@ -301,12 +301,12 @@ export default async function routesTableauDeBord(app) {
 
     // --- Les chiffres de tête ------------------------------------------
     const pTete = [];
-    const tete = await un(
+    const tete = await lireUn(request, 
       `select (select count(*)::int from bien b where true${filtre(permises, 'b.structure_id', pTete)}) as biens`,
       [...pTete],
     );
     const pTete2 = [];
-    const valeurTotale = await un(
+    const valeurTotale = await lireUn(request, 
       `select coalesce(sum(b.valeur_acquisition), 0) as valeur
          from bien b where true${filtre(permises, 'b.structure_id', pTete2)}`,
       pTete2,

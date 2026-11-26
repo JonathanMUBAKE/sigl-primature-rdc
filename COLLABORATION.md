@@ -114,7 +114,12 @@ compris dans le code et les noms de tables.
 
 ---
 
-## Une limite pratique
+## L'accès
 
-**Le dépôt est privé.** Si ChatGPT n'a pas d'accès GitHub, il ne pourra pas le lire : il faudra lui
-transmettre les fichiers, ou ouvrir le dépôt. À régler avant de compter sur l'automatisme.
+**Le dépôt est public** depuis le 27 novembre 2026, pour que les deux assistants puissent le lire
+sans intermédiaire. Cela a une conséquence : tout ce qui est commité est lisible par n'importe qui.
+
+Donc, sans exception : aucun secret, aucune clé, aucune donnée réelle de la Primature. Le jeu de
+démonstration est fictif, `.env` est ignoré par git et `.env.example` ne porte que des noms de
+variables. Avant d'ajouter un fichier, se demander s'il peut être lu par un tiers — et dans le doute,
+ne pas l'ajouter.

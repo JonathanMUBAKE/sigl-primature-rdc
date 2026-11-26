@@ -18,18 +18,24 @@ import {
 
 const MARQUE = 'ESSAI-ISOLATION';
 
-let sgp;      // Secrétariat Général à la Primature — régime `integre`
-let sgg;      // Secrétariat Général du Gouvernement — régime `integre`
-let armp;     // Autorité de Régulation des Marchés Publics — régime `autonome`
+let cab;      // Cabinet de la Première ministre — `integre`, parent du SGP
+let sgp;      // Secrétariat Général à la Primature — `integre`, parent de la CGIG
+let cgig;     // Cellule de Gestion des Immeubles du Gouvernement — `integre`, fille du SGP
+let sgg;      // Secrétariat Général du Gouvernement — `integre`, structure sœur du SGP
+let armp;     // Autorité de Régulation des Marchés Publics — `autonome`
+let agentCab;
 let agentSgp;
 let agentArmp;
 let categorie;
 
 before(async () => {
   await enPrivilegie(async (bd) => {
-    sgp = await bd.un("select id, code, regime from structure where code = 'SGP'");
+    cab = await bd.un("select id, code, regime from structure where code = 'CAB'");
+    sgp = await bd.un("select id, code, regime, parent_id from structure where code = 'SGP'");
+    cgig = await bd.un("select id, code, regime, parent_id from structure where code = 'CGIG'");
     sgg = await bd.un("select id, code, regime from structure where code = 'SGG'");
-    armp = await bd.un("select id, code, regime from structure where code = 'ARMP'");
+    armp = await bd.un("select id, code, regime, parent_id from structure where code = 'ARMP'");
+    agentCab = await bd.un('select id from agent where structure_id = $1 limit 1', [cab.id]);
     agentSgp = await bd.un('select id from agent where structure_id = $1 limit 1', [sgp.id]);
     agentArmp = await bd.un('select id from agent where structure_id = $1 limit 1', [armp.id]);
     categorie = await bd.un(
@@ -37,9 +43,13 @@ before(async () => {
     );
   });
 
-  assert.ok(sgp && sgg && armp, 'le jeu de démonstration doit être chargé');
+  assert.ok(cab && sgp && cgig && sgg && armp, 'le jeu de démonstration doit être chargé');
   assert.equal(sgp.regime, 'integre');
   assert.equal(armp.regime, 'autonome');
+  // La hiérarchie que les tests de portée supposent.
+  assert.equal(sgp.parent_id, cab.id, 'le SGP est rattaché au Cabinet');
+  assert.equal(cgig.parent_id, sgp.id, 'la CGIG est rattachée au SGP');
+  assert.equal(armp.parent_id, null, 'un établissement autonome n’est pas rattaché');
 });
 
 after(async () => {
@@ -62,14 +72,26 @@ function bienDEssai(structureId, suffixe) {
 
 describe('RG-017 — une structure ne lit que ses propres données', () => {
   it('un agent du SGP ne voit aucun bien de l’ARMP', async () => {
-    const lignes = await transaction(
+    const { lignes, portee } = await transaction(
       { agentId: agentSgp.id, structureId: sgp.id },
-      (bd) => bd.tous('select id, structure_id from bien'),
+      async (bd) => ({
+        lignes: await bd.tous('select id, structure_id from bien'),
+        // La portée telle que la base la calcule : le SGP et ses filles.
+        portee: await bd.tous('select sigl_portee_structures() as id'),
+      }),
     );
 
     assert.ok(lignes.length > 0, 'le SGP doit voir ses propres biens');
-    const etrangers = lignes.filter((l) => l.structure_id !== sgp.id);
-    assert.equal(etrangers.length, 0, 'aucune ligne d’une autre structure ne doit remonter');
+
+    const autorisees = new Set(portee.map((l) => l.id));
+    assert.ok(autorisees.has(sgp.id));
+    assert.ok(!autorisees.has(armp.id), 'un établissement autonome n’est jamais dans la portée');
+
+    const horsPortee = lignes.filter((l) => !autorisees.has(l.structure_id));
+    assert.equal(horsPortee.length, 0, 'aucune ligne hors de la portée ne doit remonter');
+
+    const deLArmp = lignes.filter((l) => l.structure_id === armp.id);
+    assert.equal(deLArmp.length, 0, 'et surtout aucune ligne de l’ARMP');
   });
 
   it('une requête sans filtre ne ramène pas l’ARMP, même en demandant son identifiant', async () => {
@@ -96,6 +118,22 @@ describe('RG-017 — une structure ne lit que ses propres données', () => {
     assert.deepEqual(compte, {
       besoins: 0, stocks: 0, mouvements: 0, documents: 0, agents: 0,
     });
+  });
+
+  it('une structure voit ses filles, mais pas sa sœur ni sa mère', async () => {
+    const vu = await transaction(
+      { agentId: agentSgp.id, structureId: sgp.id },
+      async (bd) => ({
+        soi: await bd.valeur('select count(*)::int from bien where structure_id = $1', [sgp.id]),
+        fille: await bd.valeur('select count(*)::int from bien where structure_id = $1', [cgig.id]),
+        soeur: await bd.valeur('select count(*)::int from bien where structure_id = $1', [sgg.id]),
+        mere: await bd.valeur('select count(*)::int from bien where structure_id = $1', [cab.id]),
+      }),
+    );
+    assert.ok(vu.soi > 0, 'sa propre structure');
+    assert.ok(vu.fille > 0, 'la CGIG est rattachée au SGP : elle est lue');
+    assert.equal(vu.soeur, 0, 'le SGG est une structure sœur : il n’est pas lu');
+    assert.equal(vu.mere, 0, 'on ne remonte pas vers sa structure mère');
   });
 
   it('l’ARMP, chez elle, voit bien ses propres lignes', async () => {
@@ -142,12 +180,41 @@ describe('RG-018 — une structure autonome n’est jamais écrite par le niveau
     assert.ok(ligne.id);
   });
 
-  it('le niveau central écrit dans une structure intégrée, dont le patrimoine est le sien', async () => {
+  it('une structure mère écrit dans sa fille intégrée, dont le patrimoine est le sien', async () => {
     const ligne = await transaction(
       { agentId: agentSgp.id, structureId: sgp.id },
-      (bd) => bd.un(...bienDEssai(sgg.id, 'integre-permise')),
+      (bd) => bd.un(...bienDEssai(cgig.id, 'integre-permise')),
     );
-    assert.ok(ligne.id, 'une structure intégrée reste écrivable depuis le central');
+    assert.ok(ligne.id, 'une fille intégrée reste écrivable depuis sa mère');
+  });
+
+  it('le Cabinet, au sommet, écrit dans le Secrétariat général', async () => {
+    const ligne = await transaction(
+      { agentId: agentCab.id, structureId: cab.id },
+      (bd) => bd.un(...bienDEssai(sgp.id, 'cabinet-vers-sgp')),
+    );
+    assert.ok(ligne.id);
+  });
+
+  it('mais pas dans une structure sœur, hors de sa portée', async () => {
+    await assert.rejects(
+      () => transaction(
+        { agentId: agentSgp.id, structureId: sgp.id },
+        (bd) => bd.un(...bienDEssai(sgg.id, 'soeur-interdite')),
+      ),
+      /row-level security|violates/i,
+    );
+  });
+
+  it('ni dans un établissement autonome, même rattaché au Cabinet', async () => {
+    await assert.rejects(
+      () => transaction(
+        { agentId: agentCab.id, structureId: cab.id },
+        (bd) => bd.un(...bienDEssai(armp.id, 'cabinet-vers-armp')),
+      ),
+      /row-level security|violates/i,
+      'le rattachement administratif ne donne pas la main sur les écritures',
+    );
   });
 
   it('on ne déplace pas une ligne hors de son cloisonnement par une mise à jour', async () => {

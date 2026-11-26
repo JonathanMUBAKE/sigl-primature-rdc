@@ -12,8 +12,10 @@
 // RG-011 : le paiement n'est marqué possible qu'au vu du certificat de prise
 // en charge à l'inventaire.
 
-import { tous, un, transaction } from '../db.js';
-import { ecriture, lecture } from './_droits.js';
+import { enEcriture, enLecture, lireTous, lireUn } from './_sql.js';
+import {
+  ecriture, lecture, viser,
+} from './_droits.js';
 import {
   appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
   ErreurMetier,
@@ -62,8 +64,8 @@ export default async function routesAchats(app) {
       params.push(`%${request.query.q.toLowerCase()}%`);
       ou += ` and (lower(d.objet) like $${params.length} or lower(d.numero) like $${params.length})`;
     }
-    const total = await un(`select count(*)::int as n from dossier_achat d ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from dossier_achat d ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select d.*, e.numero as etat_besoin_numero, e.structure_id,
               s.code as structure_code, s.nom as structure_nom,
               (select count(*)::int from bon_commande bc where bc.dossier_id = d.id) as nombre_bons,
@@ -84,20 +86,20 @@ export default async function routesAchats(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const dossier = await un(
+    const dossier = await lireUn(request, 
       `select d.*, e.numero as etat_besoin_numero, e.structure_id
          from dossier_achat d left join etat_besoin e on e.id = d.etat_besoin_id
         where d.id = $1`,
       [request.params.id],
     );
     if (!dossier) throw nonTrouve("Ce dossier d'achat");
-    const bons = await tous(
+    const bons = await lireTous(request, 
       `select bc.*, f.denomination as fournisseur_nom, f.liste_noire
          from bon_commande bc join fournisseur f on f.id = bc.fournisseur_id
         where bc.dossier_id = $1 order by bc.emis_le desc`,
       [dossier.id],
     );
-    const alertes = await tous(
+    const alertes = await lireTous(request, 
       `select id, code, gravite, explication, statut, suite, cree_le
          from alerte where objet_type = 'dossier_achat' and objet_id = $1 order by cree_le desc`,
       [String(dossier.id)],
@@ -130,16 +132,16 @@ export default async function routesAchats(app) {
 
     let besoin = null;
     if (corps.etat_besoin_id) {
-      besoin = await un(
+      besoin = await lireUn(request, 
         'select id, numero, structure_id, statut from etat_besoin where id = $1',
         [corps.etat_besoin_id],
       );
       if (!besoin) throw nonTrouve("L'état de besoin rattaché");
     }
-    const structureId = besoin?.structure_id ?? request.agent.structure_id;
+    const structureId = viser(request, besoin?.structure_id ?? request.agent.structure_id);
 
     // Les seuils en vigueur à la date du dossier, lus dans `parametre`.
-    const seuils = await seuilsPassation(date);
+    const seuils = await enLecture(request, () => seuilsPassation(date));
     appliquer(rg007({
       montant_estime: corps.montant_estime,
       seuils,
@@ -149,8 +151,8 @@ export default async function routesAchats(app) {
 
     // RG-008 — le découpage. On regarde les dossiers de même objet, ou du même
     // état de besoin, ouverts dans la fenêtre de surveillance.
-    const jours = await fenetreDecoupageJours();
-    const dossiersLies = await tous(
+    const jours = await enLecture(request, () => fenetreDecoupageJours());
+    const dossiersLies = await lireTous(request, 
       `select id, numero, objet, montant_estime, procedure, cree_le
          from dossier_achat
         where statut <> 'annule'
@@ -162,21 +164,24 @@ export default async function routesAchats(app) {
     const decoupage = rg008({ montant_estime: corps.montant_estime, seuils, dossiers_lies: dossiersLies });
     if (decoupage) {
       // La route bloque, et l'alerte ouvre un examen. Aucun état métier ne change.
-      const alerte = await leverAlerte({
-        code: decoupage.alerte.code,
-        gravite: decoupage.alerte.gravite,
-        structure_id: structureId,
-        objet_type: 'dossier_achat',
-        objet_id: corps.etat_besoin_id ?? null,
-        explication: decoupage.alerte.explication,
-        donnees: { ...decoupage.alerte.donnees, objet: corps.objet, fenetre_jours: jours },
-      });
-      await journaliserDepuis(request, {
-        action: 'blocage_decoupage_achat',
-        objet_type: 'alerte',
-        objet_id: alerte.id,
-        avant: null,
-        apres: { code: 'RG-008', objet: corps.objet, montant_estime: corps.montant_estime, alerte: alerte.id },
+      const alerte = await enEcriture(request, async () => {
+        const ouverte = await leverAlerte({
+          code: decoupage.alerte.code,
+          gravite: decoupage.alerte.gravite,
+          structure_id: structureId,
+          objet_type: 'dossier_achat',
+          objet_id: corps.etat_besoin_id ?? null,
+          explication: decoupage.alerte.explication,
+          donnees: { ...decoupage.alerte.donnees, objet: corps.objet, fenetre_jours: jours },
+        });
+        await journaliserDepuis(request, {
+          action: 'blocage_decoupage_achat',
+          objet_type: 'alerte',
+          objet_id: ouverte.id,
+          avant: null,
+          apres: { code: 'RG-008', objet: corps.objet, montant_estime: corps.montant_estime, alerte: ouverte.id },
+        });
+        return ouverte;
       });
       publier({ type: 'ouverture', objet: 'alerte', id: alerte.id, structure_id: structureId, donnees: { code: alerte.code, gravite: alerte.gravite } });
       const erreur = new ErreurMetier(decoupage, 409);
@@ -184,7 +189,7 @@ export default async function routesAchats(app) {
       throw erreur;
     }
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('dossier_achat');
       await journaliserDepuis(request, {
         action: 'ouverture_dossier_achat',
@@ -196,7 +201,7 @@ export default async function routesAchats(app) {
           seuils_appliques: seuils, date, etat_besoin_id: corps.etat_besoin_id ?? null,
         },
       });
-      const dossier = await un(
+      const dossier = await lireUn(request, 
         `insert into dossier_achat (numero, etat_besoin_id, objet, montant_estime, procedure, statut, seuils_appliques)
          values ($1, $2, $3, $4, $5, 'ouvert', $6) returning *`,
         [numero, corps.etat_besoin_id ?? null, corps.objet, corps.montant_estime, procedure, JSON.stringify(seuils)],
@@ -204,13 +209,13 @@ export default async function routesAchats(app) {
       // L'état de besoin passe en achat pour ses lignes d'achat : le reste du
       // besoin, servi sur stock, n'attend pas ce dossier.
       if (besoin && ['examine', 'partiel', 'livrable', 'vise', 'recu'].includes(besoin.statut)) {
-        const resteStock = await un(
+        const resteStock = await lireUn(request, 
           `select count(*)::int as n from ligne_besoin
             where etat_besoin_id = $1 and origine = 'stock'`,
           [besoin.id],
         );
         if (resteStock.n === 0) {
-          await un(`update etat_besoin set statut = 'en_achat' where id = $1`, [besoin.id]);
+          await lireUn(request, `update etat_besoin set statut = 'en_achat' where id = $1`, [besoin.id]);
         }
       }
       return dossier;
@@ -246,8 +251,8 @@ export default async function routesAchats(app) {
         ou += ` and ${colonne} = $${params.length}`;
       }
     }
-    const total = await un(`select count(*)::int as n from bon_commande bc ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from bon_commande bc ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select bc.*, f.denomination as fournisseur_nom, f.liste_noire, f.delai_moyen_jours,
               d.numero as dossier_numero, d.objet, d.procedure, d.montant_estime,
               extract(day from now() - bc.emis_le)::int as anciennete_jours
@@ -292,7 +297,7 @@ export default async function routesAchats(app) {
       },
     },
   }, async (request, reply) => {
-    const dossier = await un(
+    const dossier = await lireUn(request, 
       `select d.*, e.structure_id from dossier_achat d
          left join etat_besoin e on e.id = d.etat_besoin_id where d.id = $1`,
       [request.body.dossier_id],
@@ -304,20 +309,20 @@ export default async function routesAchats(app) {
         'dossier_id',
       );
     }
-    const fournisseur = await un('select * from fournisseur where id = $1', [request.body.fournisseur_id]);
+    const fournisseur = await lireUn(request, 'select * from fournisseur where id = $1', [request.body.fournisseur_id]);
     if (!fournisseur) throw nonTrouve('Ce fournisseur');
 
     // RG-009 : aucun bon de commande vers un fournisseur en liste noire.
     appliquer(rg009({ fournisseur }));
 
-    const structureId = dossier.structure_id ?? request.agent.structure_id;
-    const dejaCommande = await un(
+    const structureId = viser(request, dossier.structure_id ?? request.agent.structure_id);
+    const dejaCommande = await lireUn(request, 
       'select coalesce(sum(montant), 0)::numeric as total from bon_commande where dossier_id = $1 and statut <> \'annule\'',
       [dossier.id],
     );
     const cumul = Number(dejaCommande.total) + Number(request.body.montant);
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('bon_commande');
       await journaliserDepuis(request, {
         action: 'emission_bon_commande',
@@ -329,12 +334,12 @@ export default async function routesAchats(app) {
           montant: request.body.montant, cumul_dossier: cumul,
         },
       });
-      const bon = await un(
+      const bon = await lireUn(request, 
         `insert into bon_commande (numero, dossier_id, fournisseur_id, montant, statut)
          values ($1, $2, $3, $4, 'emis') returning *`,
         [numero, dossier.id, fournisseur.id, request.body.montant],
       );
-      const document = await un(
+      const document = await lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige)
          values ('bon_commande', $1, $2, 'bon_commande', $3, $4, $5, now(), true) returning *`,
@@ -353,7 +358,7 @@ export default async function routesAchats(app) {
         ],
       );
       if (dossier.statut === 'ouvert') {
-        await un(`update dossier_achat set statut = 'attribue' where id = $1`, [dossier.id]);
+        await lireUn(request, `update dossier_achat set statut = 'attribue' where id = $1`, [dossier.id]);
       }
       return { bon, document };
     });
@@ -362,7 +367,7 @@ export default async function routesAchats(app) {
     // l'alerte ouvre un examen, elle ne change aucun état (RG-022).
     let alerte = null;
     if (cumul > Number(dossier.montant_estime)) {
-      alerte = await leverAlerte({
+      alerte = await enEcriture(request, () => leverAlerte({
         code: 'ECART_ESTIMATION',
         gravite: 'attention',
         structure_id: structureId,
@@ -370,7 +375,7 @@ export default async function routesAchats(app) {
         objet_id: String(dossier.id),
         explication: "Le cumul des bons de commande dépasse le montant estimé du dossier : justifiez l'écart ou révisez l'estimation.",
         donnees: { montant_estime: Number(dossier.montant_estime), cumul_commande: cumul },
-      });
+      }));
     }
 
     publier({ type: 'bon_commande', objet: 'achat', id: resultat.bon.id, structure_id: structureId, donnees: { montant: resultat.bon.montant } });
@@ -383,7 +388,7 @@ export default async function routesAchats(app) {
     preHandler: ecriture('comptable_public'),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const bon = await un(
+    const bon = await lireUn(request, 
       `select bc.*, d.numero as dossier_numero, e.structure_id
          from bon_commande bc
          join dossier_achat d on d.id = bc.dossier_id
@@ -394,7 +399,7 @@ export default async function routesAchats(app) {
     if (!bon) throw nonTrouve('Ce bon de commande');
 
     // RG-011 : aucun paiement marqué possible sans certificat de prise en charge.
-    const certificat = await un(
+    const certificat = await lireUn(request, 
       `select * from document
         where type = 'certificat_prise_en_charge' and objet_type = 'bon_commande' and objet_id = $1
         order by cree_le desc limit 1`,
@@ -402,7 +407,7 @@ export default async function routesAchats(app) {
     );
     appliquer(rg011({ certificat }));
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: 'paiement_possible',
         objet_type: 'bon_commande',
@@ -410,7 +415,7 @@ export default async function routesAchats(app) {
         avant: { statut: bon.statut },
         apres: { statut: 'payable', certificat: certificat.numero },
       });
-      return un(`update bon_commande set statut = 'payable' where id = $1 returning *`, [bon.id]);
+      return lireUn(request, `update bon_commande set statut = 'payable' where id = $1 returning *`, [bon.id]);
     });
 
     publier({ type: 'payable', objet: 'achat', id: bon.id, structure_id: bon.structure_id ?? request.agent.structure_id });

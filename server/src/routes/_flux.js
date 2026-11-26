@@ -13,8 +13,7 @@
 // est consolidé, jamais le détail de ses écritures.
 
 import { EventEmitter } from 'node:events';
-import { ouvrir } from '../db.js';
-import * as db from '../db.js';
+import { obtenirPool } from '../db.js';
 
 export const CANAL = 'sigl_flux';
 
@@ -64,11 +63,30 @@ export function depuis(sequence) {
 // --- La relève des notifications PostgreSQL -------------------------------
 
 let ecouteDemarree = false;
+let clientEcoute = null;
+let reconnexion = null;
+
+/** Ferme la connexion d'écoute. Pour l'arrêt du serveur et les tests. */
+export async function arreterEcoute() {
+  ecouteDemarree = false;
+  if (reconnexion) clearTimeout(reconnexion);
+  reconnexion = null;
+  const client = clientEcoute;
+  clientEcoute = null;
+  if (client) {
+    client.removeAllListeners('notification');
+    client.release?.(true);
+  }
+}
 
 /**
- * Branche la connexion d'écoute. Tolérante : si la base ne sait pas écouter
- * (ou si les déclencheurs ne sont pas encore posés), le flux continue de vivre
+ * Branche la connexion d'écoute : un client dédié du pool, qui reste en
+ * `LISTEN sigl_flux` et relaie les notifications dans le bus. On ne sonde
+ * jamais la base.
+ *
+ * Tolérante par construction : si rien n'émet encore sur le canal, le flux vit
  * des publications des routes, et le serveur le dit une fois dans son journal.
+ * Si la connexion tombe, elle est reprise après un court délai.
  */
 export async function demarrerEcoute(logger = console) {
   if (ecouteDemarree) return true;
@@ -88,23 +106,36 @@ export async function demarrerEcoute(logger = console) {
     }
   };
 
+  const reprendre = () => {
+    if (reconnexion) return;
+    reconnexion = setTimeout(() => {
+      reconnexion = null;
+      demarrerEcoute(logger).catch(() => {});
+    }, 5_000);
+  };
+
   try {
-    if (typeof db.ecouter === 'function') {
-      await db.ecouter(CANAL, recevoir);
-      ecouteDemarree = true;
-    } else {
-      const instance = await ouvrir();
-      if (typeof instance.listen === 'function') {
-        await instance.listen(CANAL, recevoir);
-        ecouteDemarree = true;
-      }
-    }
+    const client = await obtenirPool().connect();
+    client.on('notification', (message) => {
+      if (message.channel === CANAL) recevoir(message.payload);
+    });
+    client.on('error', (erreur) => {
+      logger.warn?.(`Flux : la connexion d'écoute est tombée (${erreur.message}). Reprise dans 5 s.`);
+      ecouteDemarree = false;
+      clientEcoute = null;
+      client.release?.(true);
+      reprendre();
+    });
+    await client.query(`listen ${CANAL}`);
+    clientEcoute = client;
+    ecouteDemarree = true;
+    logger.info?.(`Flux : à l'écoute du canal ${CANAL}.`);
   } catch (erreur) {
-    logger.warn?.(`Flux : écoute PostgreSQL indisponible (${erreur.message}). Le flux relaie les écritures du serveur.`);
+    logger.warn?.(
+      `Flux : écoute PostgreSQL indisponible (${erreur.message}). Le flux relaie les écritures du serveur, et la reprise est programmée.`,
+    );
+    reprendre();
     return false;
-  }
-  if (!ecouteDemarree) {
-    logger.info?.('Flux : la base ne propose pas LISTEN ; le flux relaie les écritures du serveur.');
   }
   return ecouteDemarree;
 }

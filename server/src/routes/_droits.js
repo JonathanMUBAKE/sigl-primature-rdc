@@ -8,7 +8,8 @@
 // `preHandler` ou en tête de route. Les règles RG-017 et RG-018 restent pures
 // et vivent dans `regles/`.
 
-import { tous, un } from '../db.js';
+import { consolidation, un as dbUn, tous as dbTous } from '../db.js';
+import { lireTous, lireUn } from './_sql.js';
 import { nonAutorise, nonTrouve, appliquer } from './_commun.js';
 import { rg017 } from '../regles/rg-017.js';
 import { rg018 } from '../regles/rg-018.js';
@@ -33,7 +34,13 @@ export function estUuid(valeur) {
 /** Charge l'agent désigné, ses rôles et sa structure. */
 export async function chargerAgent(identifiant) {
   if (!estUuid(identifiant)) return null;
-  const agent = await un(
+  // La lecture est consolidée : on ne sait pas encore de quelle structure
+  // relève cet agent, donc aucun contexte ne peut être posé avant.
+  return consolidation(() => chargerAgentEnContexte(identifiant));
+}
+
+async function chargerAgentEnContexte(identifiant) {
+  const agent = await dbUn(
     `select a.id, a.nom, a.fonction, a.email, a.actif, a.structure_id,
             s.code as structure_code, s.nom as structure_nom,
             s.regime as structure_regime, s.type as structure_type
@@ -42,7 +49,7 @@ export async function chargerAgent(identifiant) {
     [identifiant],
   );
   if (!agent) return null;
-  const roles = await tous(
+  const roles = await dbTous(
     'select role_code, structure_id, site_id from agent_role where agent_id = $1',
     [agent.id],
   );
@@ -113,7 +120,7 @@ export function ecriture(...codes) {
 /** Les structures que l'agent peut lire, ou `null` quand il lit tout. */
 export async function structuresDe(request) {
   if (porteeTotale(request.agent)) return null;
-  const structures = await tous('select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id from structure');
   return structuresLisibles(request.agent, structures);
 }
 
@@ -121,7 +128,7 @@ export async function structuresDe(request) {
 export async function verifierLecture(request, structureId) {
   if (!structureId) return;
   if (porteeTotale(request.agent)) return;
-  const structures = await tous('select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id from structure');
   appliquer(rg017({ agent: request.agent, structure_id: structureId, structures }), 403);
 }
 
@@ -133,11 +140,12 @@ export async function verifierLecture(request, structureId) {
  */
 export async function verifierEcritureStructure(request, structureId) {
   if (!structureId) return null;
-  const cible = await un('select id, code, nom, regime from structure where id = $1', [structureId]);
+  const cible = await lireUn(request, 'select id, code, nom, regime from structure where id = $1', [structureId]);
   if (!cible) throw nonTrouve('La structure visée');
   appliquer(rg018({ agent: request.agent, structure_cible: cible }), 403);
+  viser(request, cible.id);
   if (!porteeTotale(request.agent)) {
-    const structures = await tous('select id, parent_id from structure');
+    const structures = await lireTous(request, 'select id, parent_id from structure');
     const permises = structuresLisibles(request.agent, structures).map(String);
     if (!permises.includes(String(structureId))) {
       throw nonAutorise(
@@ -147,6 +155,17 @@ export async function verifierEcritureStructure(request, structureId) {
     }
   }
   return cible;
+}
+
+/**
+ * Note à la transaction d'écriture : voici la structure visée par l'opération.
+ * `enEcriture` s'y positionne quand son régime est `integre`. C'est ce qui
+ * permet à une écriture du niveau central de se relire, sans jamais ouvrir la
+ * porte d'un établissement autonome (RG-018, tenue aussi par la base).
+ */
+export function viser(request, structureId) {
+  if (request && structureId) request.structureCible = String(structureId);
+  return structureId;
 }
 
 export function estLectureSeule(agent) {

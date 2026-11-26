@@ -24,7 +24,7 @@ export default function Bouton({
 
   const contenu = (
     <>
-      {Icone ? <Icone size={15} aria-hidden="true" /> : null}
+      {Icone ? <Icone className="bouton-icone" size={15} aria-hidden="true" /> : null}
       {children}
     </>
   )

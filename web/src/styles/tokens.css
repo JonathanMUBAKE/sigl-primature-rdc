@@ -2,95 +2,104 @@
   SIGL — les jetons, et rien d'autre.
   Le style de base et celui des composants vivent dans `base.css`.
 
-  Direction artistique : charte graphique officielle du Gouvernement de la
-  République démocratique du Congo, février 2022.
+  ------------------------------------------------------------------------
+  DIRECTION ARTISTIQUE
+  ------------------------------------------------------------------------
+  Un logiciel de grand groupe industriel : neutre, raffiné, rien de surchargé.
+  Repères : Linear, Stripe, Asana, Attio, shadcn/ui.
+
+  Le chrome — bandeau et barre latérale — est NEUTRE. Aucun aplat de couleur
+  en surface de navigation : un fond très pâle, un filet d'un pixel, et c'est
+  tout. Les couleurs officielles du Gouvernement de la République
+  démocratique du Congo restent, mais en ACCENTS et en ÉTATS seulement :
+  l'élément actif, un lien, une pastille, le bloc-marque.
 
     bleu   #0095c9  Pantone 801 C
     jaune  #fff24b  Pantone 803 C
     rouge  #db3832  Pantone 485 C
     noir   #323230
 
-  Les deux bleus profonds #17418a et #115780 portent le bandeau et la barre
-  latérale. Tout le reste est dérivé de ces six valeurs.
+  ------------------------------------------------------------------------
+  UNE SEULE GRAISSE
+  ------------------------------------------------------------------------
+  Tout en 400. La hiérarchie vient de la TAILLE et de la COULEUR du texte,
+  jamais du gras. Le 600 est réservé aux en-têtes de tableau et aux chiffres
+  clés — à rien d'autre.
 
   ------------------------------------------------------------------------
   TROIS COULEURS NE PORTENT JAMAIS DE TEXTE
   ------------------------------------------------------------------------
-  Elles sont justes en aplat, et seulement en aplat. Contrastes mesurés sur
-  --fond (#ffffff) :
+  Elles sont justes en aplat, et seulement en aplat. Contrastes sur --fond :
 
     --ambre         2,15:1   ILLISIBLE   fonds et pastilles uniquement
                                          → pour du texte : --ambre-texte
-    --bleu-drapeau  3,42:1   insuffisant  filets, accents, aplats
+    --bleu-drapeau  3,42:1   insuffisant  accents, filets, points
                                          → pour du texte : --bleu-texte
-    --encre-faible  4,20:1   insuffisant  réservé au texte de 24 px et plus
+    --encre-faible  4,20:1   insuffisant  icônes et éléments non textuels
                                          → pour du texte courant : --encre-douce
 
   Les paires conformes, vérifiées une à une :
     --encre / --fond                      12,85
     --encre / --jaune-drapeau             11,05
-    --encre-inversee / --bleu-nuit         9,72
+    --encre-douce / --fond                 5,92
     --bleu-texte / --fond                  7,78
     --ambre-texte / --ambre-pale           7,73
     --bleu-lien / --bleu-pale              7,02
     --vert-texte / --vert-pale             6,04
-    --bleu-nuit-doux / --bleu-nuit         5,83
     --rouge-texte / --rouge-pale           5,61
-    --encre-inversee / --rouge-drapeau     4,54
 */
 
 :root {
-  /* ---- Couleurs du drapeau, en usage institutionnel ---- */
-  --bleu-drapeau: #0095c9; /* aplat seulement — voir l'avertissement ci-dessus */
-  --jaune-drapeau: #fff24b; /* aplat seulement ; ne reçoit que du texte --encre */
+  /* ---- Couleurs officielles, en accents seulement ---- */
+  --bleu-drapeau: #0095c9; /* aplat et accent — jamais du texte */
+  --jaune-drapeau: #fff24b; /* aplat ; ne reçoit que du texte --encre */
   --rouge-drapeau: #db3832;
   --noir-drapeau: #323230;
 
-  /* ---- Bleus profonds : bandeau et barre latérale ---- */
-  --bleu-nuit: #17418a;
-  --bleu-appui: #115780;
-  --bleu-nuit-fonce: #102f66;
-  --bleu-nuit-doux: #b9c9e8;
-  --bleu-nuit-filet: #2b559b;
-
-  /* ---- Bleus de travail, dérivés ---- */
+  /* ---- Bleus de travail ---- */
   --bleu-texte: #115780;
   --bleu-lien: #115780;
-  --bleu-actif: #0095c9;
+  --bleu-profond: #17418a; /* bloc-marque et armoiries */
   --bleu-pale: #eaf5fb;
-  --bleu-pale-fonce: #d3e9f5;
   --bleu-tres-pale: #f4fafd;
 
   /* ---- Texte ---- */
-  --encre: #323230;
-  --encre-douce: #5b5b57;
-  --encre-faible: #7c7c76; /* 24 px et plus, ou éléments non textuels */
+  --encre: #323230; /* titres et valeurs */
+  --encre-douce: #6b6b66; /* texte secondaire, libellés */
+  --encre-faible: #94948e; /* icônes, repères — jamais du texte courant */
   --encre-inversee: #ffffff;
 
-  /* ---- Fonds et filets ---- */
-  --fond: #ffffff;
-  --fond-gris: #f7f7f5;
-  --fond-alterne: #fafcfe;
-  --ligne: #d9d9d4;
-  --ligne-forte: #b9b9b2;
+  /* ---- Surfaces : neutres purs ---- */
+  --fond: #ffffff; /* cartes, panneaux, tableaux */
+  --fond-page: #fafafa; /* le fond du contenu */
+  --fond-chrome: #fcfcfc; /* bandeau et barre latérale */
+  --fond-doux: #f6f6f5; /* en-têtes de tableau, pieds */
+
+  /* ---- Filets : un seul pixel, discret ---- */
+  --ligne: #e8e8e6;
+  --ligne-forte: #dcdcd9;
+
+  /* ---- Voiles : on teinte au lieu de border ---- */
+  --voile-survol: rgba(50, 50, 48, 0.035);
+  --voile-actif: rgba(50, 50, 48, 0.06);
+  --voile-accent: rgba(0, 149, 201, 0.08);
+  --voile-fond: rgba(50, 50, 48, 0.28); /* derrière un tiroir ou un dialogue */
 
   /* ---- États ---- */
   --vert: #1e7f44;
   --vert-texte: #19683a;
-  --vert-pale: #e9f4ed;
-  --ambre: #e0a800; /* aplat seulement — voir l'avertissement ci-dessus */
+  --vert-pale: #eef6f1;
+  --ambre: #e0a800; /* aplat seulement */
   --ambre-texte: #6b4a00;
-  --ambre-pale: #fffbe0;
+  --ambre-pale: #fdf8e3;
   --rouge: #db3832;
   --rouge-texte: #b32a25;
-  --rouge-pale: #fdecec;
-  --neutre-pale: #f0f0ee;
-  --changement: #fff8c4; /* teinte d'une donnée qui vient de changer */
+  --rouge-pale: #fdeeed;
+  --neutre-pale: #f2f2f0;
+  --changement: #fff8c4;
 
   /* ---- Focus clavier ---- */
-  /* Un outil administratif se parcourt au clavier toute la journée. */
-  --focus: #0095c9; /* anneau sur fond clair */
-  --focus-inverse: #fff24b; /* anneau sur le bandeau et la barre latérale */
+  --focus: #0095c9;
   --focus-epaisseur: 2px;
   --focus-ecart: 2px;
 
@@ -104,48 +113,44 @@
   --espace-7: 48px;
 
   /* ---- Typographie ---- */
-  --police: 'Cooper Hewitt', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  --police: 'Cooper Hewitt', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  /* Cinq tailles, de 12 à 24 px. Rien d'autre. */
-  --texte-xs: 12px; /* légendes, notes, en-têtes de tableau */
-  --texte-xs-hauteur: 1.35;
-  --texte-s: 13px; /* texte secondaire, cellules denses */
-  --texte-s-hauteur: 1.4;
-  --texte-m: 14px; /* texte des tableaux et des formulaires */
-  --texte-m-hauteur: 1.45;
-  --texte-l: 16px; /* texte courant, base du document */
-  --texte-l-hauteur: 1.5;
-  --texte-xl: 24px; /* titre d'écran */
-  --texte-xl-hauteur: 1.2;
+  /* Quatre tailles, plus une pour le titre d'écran. Rien d'autre. */
+  --texte-xs: 12px; /* mentions, en-têtes de tableau, notes */
+  --texte-s: 13px; /* texte secondaire */
+  --texte-m: 14px; /* la taille dominante : tableaux, formulaires, navigation */
+  --texte-l: 16px; /* texte courant et sous-titres de bloc */
+  --texte-titre: 20px; /* titre d'écran, chiffres clés */
 
-  --graisse-normale: 400;
-  --graisse-moyenne: 500;
+  --hauteur-serree: 1.35;
+  --hauteur-normale: 1.5;
+
+  /* Une seule graisse. Le 600 est réservé : en-têtes de tableau, chiffres clés. */
+  --graisse: 400;
   --graisse-appuyee: 600;
-  --graisse-forte: 700;
 
-  --interlettrage-titre: -0.01em;
-  --interlettrage-capitales: 0.07em;
+  --interlettrage-capitales: 0.04em;
 
-  /* ---- Formes ---- */
-  --angle: 4px; /* boutons, champs, pastilles */
-  --angle-carte: 6px; /* cartes, tableaux, dialogues */
+  /* ---- Formes — angles doux, les angles durs sont refusés ---- */
+  --angle: 6px; /* champs, boutons, pastilles */
+  --angle-carte: 8px; /* cartes, panneaux, tableaux, tiroirs */
   --filet: 1px;
 
   /* ---- Mouvement ---- */
-  /* La charte proscrit l'ornement, pas la transition. */
   --duree-etat: 120ms;
   --duree-panneau: 200ms;
-  --duree-marquage: 2000ms; /* une donnée qui vient de changer */
+  --duree-marquage: 2000ms;
   --courbe: ease-out;
 
-  /* ---- Dimensions de la charpente ---- */
+  /* ---- Dimensions ---- */
   --bandeau-h: 56px;
-  --laterale-l: 228px;
+  --laterale-l: 232px;
+  --tiroir-l: 560px;
 }
 
 @media (max-width: 1000px) {
   :root {
-    --laterale-l: 180px;
+    --laterale-l: 188px;
   }
 }
 

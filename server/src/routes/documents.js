@@ -2,8 +2,10 @@
 // document lié, par `parent_document_id`. Il n'y a donc ici ni PUT, ni PATCH,
 // ni DELETE — seulement la lecture et la rectification par un document nouveau.
 
-import { tous, un, transaction } from '../db.js';
-import { ecriture, lecture, structuresDe, verifierLecture } from './_droits.js';
+import { enEcriture, lireTous, lireUn } from './_sql.js';
+import {
+  ecriture, lecture, structuresDe, verifierLecture, viser,
+} from './_droits.js';
 import { appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
 import { prochainNumero } from './_numeros.js';
@@ -62,8 +64,8 @@ export default async function routesDocuments(app) {
       ou += ` and lower(d.numero) like $${params.length}`;
     }
 
-    const total = await un(`select count(*)::int as n from document d ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from document d ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select d.id, d.type, d.numero, d.objet_type, d.objet_id, d.signataire_id, d.signe_le,
               d.fige, d.parent_document_id, d.cree_le, d.structure_id,
               s.code as structure_code, a.nom as signataire_nom
@@ -82,7 +84,7 @@ export default async function routesDocuments(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const document = await un(
+    const document = await lireUn(request, 
       `select d.*, s.code as structure_code, s.nom as structure_nom, a.nom as signataire_nom,
               a.fonction as signataire_fonction
          from document d
@@ -95,9 +97,9 @@ export default async function routesDocuments(app) {
     await verifierLecture(request, document.structure_id);
 
     const parent = document.parent_document_id
-      ? await un('select id, type, numero, signe_le from document where id = $1', [document.parent_document_id])
+      ? await lireUn(request, 'select id, type, numero, signe_le from document where id = $1', [document.parent_document_id])
       : null;
-    const rectifications = await tous(
+    const rectifications = await lireTous(request, 
       'select id, type, numero, signe_le, cree_le from document where parent_document_id = $1 order by cree_le',
       [document.id],
     );
@@ -120,13 +122,14 @@ export default async function routesDocuments(app) {
       },
     },
   }, async (request, reply) => {
-    const original = await un('select * from document where id = $1', [request.params.id]);
+    const original = await lireUn(request, 'select * from document where id = $1', [request.params.id]);
     if (!original) throw nonTrouve('Ce document');
     await verifierLecture(request, original.structure_id);
+    viser(request, original.structure_id);
     // La règle, dite à l'endroit où l'on serait tenté de passer outre.
     appliquer(rg019({ document: original, operation: 'rectification' }));
     if (original.parent_document_id) {
-      const dejaRectifie = await un(
+      const dejaRectifie = await lireUn(request, 
         'select numero from document where parent_document_id = $1 order by cree_le desc limit 1',
         [original.id],
       );
@@ -138,7 +141,7 @@ export default async function routesDocuments(app) {
       }
     }
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero(original.type);
       await journaliserDepuis(request, {
         action: 'emission_document',
@@ -147,7 +150,7 @@ export default async function routesDocuments(app) {
         avant: { rectifie: original.numero, contenu: original.contenu },
         apres: { numero, motif: request.body.motif, contenu: request.body.contenu },
       });
-      return un(
+      return lireUn(request, 
         `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
                                signataire_id, signe_le, fige, parent_document_id)
          values ($1,$2,$3,$4,$5,$6,$7, now(), true, $8) returning *`,

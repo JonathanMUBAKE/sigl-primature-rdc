@@ -7,7 +7,7 @@
 // central), RG-020 (journal avant confirmation), RG-021 (le lot n'est pas
 // immatriculé).
 
-import { tous, un, transaction } from '../db.js';
+import { enEcriture, enLecture, lireTous, lireUn } from './_sql.js';
 import { ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture } from './_droits.js';
 import {
   appliquer, appliquerToutes, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
@@ -118,8 +118,8 @@ export default async function routesBiens(app) {
                    or lower(coalesce(b.marque, '')) like $${params.length} or lower(coalesce(b.numero_serie, '')) like $${params.length})`;
     }
 
-    const total = await un(`select count(*)::int as n from bien b ${ou}`, params);
-    const donnees = await tous(
+    const total = await lireUn(request, `select count(*)::int as n from bien b ${ou}`, params);
+    const donnees = await lireTous(request, 
       `select b.id, b.immatriculation, b.designation, b.marque, b.modele, b.categorie_code,
               c.libelle as categorie_libelle, b.classement, b.etat, b.suivi, b.quantite,
               b.valeur_acquisition, b.cout_remplacement, b.date_acquisition, b.mode_entree,
@@ -144,7 +144,7 @@ export default async function routesBiens(app) {
     preHandler: lecture(),
     schema: { params: schemaIdParam },
   }, async (request) => {
-    const bien = await un(
+    const bien = await lireUn(request, 
       `select b.*, c.libelle as categorie_libelle, c.classement as categorie_classement,
               s.code as structure_code, s.nom as structure_nom, s.regime as structure_regime,
               si.nom as site_nom, a.nom as detenteur_nom
@@ -159,14 +159,14 @@ export default async function routesBiens(app) {
     if (!bien) throw nonTrouve('Ce bien');
     await verifierLecture(request, bien.structure_id);
 
-    const mouvements = await tous(
+    const mouvements = await lireTous(request, 
       `select m.id, m.type, m.quantite, m.date, m.motif, m.structure_source_code, m.structure_cible_code,
               m.document_id, m.agent_id, ag.nom as agent_nom, m.cree_le
          from mouvement m left join agent ag on ag.id = m.agent_id
         where m.bien_id = $1 order by m.date desc, m.cree_le desc`,
       [bien.id],
     );
-    const documents = await tous(
+    const documents = await lireTous(request, 
       `select id, type, numero, signe_le, signataire_id, fige, cree_le
          from document where objet_type = 'bien' and objet_id = $1 order by cree_le desc`,
       [String(bien.id)],
@@ -183,7 +183,7 @@ export default async function routesBiens(app) {
     // RG-018 : une autonome n'est jamais écrite par le niveau central.
     const structure = await verifierEcritureStructure(request, corps.structure_id);
 
-    const categorie = await un(
+    const categorie = await lireUn(request, 
       'select code, libelle, parent_code, classement from categorie where code = $1',
       [corps.categorie_code],
     );
@@ -195,7 +195,7 @@ export default async function routesBiens(app) {
     const base_evaluation = baseEvaluationAttendue({ mode_entree, classement });
 
     // Le seuil de suivi individuel est un paramètre, pas une constante.
-    const seuil = await seuilSuiviIndividuel(corps.date_acquisition);
+    const seuil = await enLecture(request, () => seuilSuiviIndividuel(corps.date_acquisition));
     const suivi = suiviAttendu({
       suivi: corps.suivi,
       valeur_acquisition: corps.valeur_acquisition,
@@ -219,7 +219,7 @@ export default async function routesBiens(app) {
       rg021({ ...candidat, immatriculation: null }),
     ]);
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       // RG-021 : seul un bien suivi en individuel reçoit une immatriculation.
       const immatriculation = suivi === 'individuel'
         ? await prochaineImmatriculation(structure.code, categorie.code)
@@ -234,7 +234,7 @@ export default async function routesBiens(app) {
         apres: { ...candidat, immatriculation },
       });
 
-      const bien = await un(
+      const bien = await lireUn(request, 
         `insert into bien (immatriculation, categorie_code, designation, marque, modele, numero_serie,
                            classement, objectif_detention, mode_entree, valeur_acquisition, cout_remplacement,
                            date_acquisition, etat, structure_id, site_id, detenteur_id, suivi, quantite,
@@ -252,7 +252,7 @@ export default async function routesBiens(app) {
       );
 
       // L'entrée au patrimoine est un mouvement : le registre dit tout.
-      await un(
+      await lireUn(request, 
         `insert into mouvement (bien_id, structure_id, type, quantite, date, structure_cible_code, motif, agent_id)
          values ($1, $2, 'entree', $3, $4, $5, $6, $7)`,
         [
@@ -301,7 +301,7 @@ export default async function routesBiens(app) {
     // RG-016 : le SIGL instruit la réforme et produit le PV, il ne la prononce pas.
     appliquer(rg016({ action: request.body.action ?? `mouvement_${type}` }));
 
-    const bien = await un(
+    const bien = await lireUn(request, 
       `select b.*, s.code as structure_code, s.regime as structure_regime
          from bien b join structure s on s.id = b.structure_id where b.id = $1`,
       [request.params.id],
@@ -333,7 +333,7 @@ export default async function routesBiens(app) {
       detenteur_id: bien.detenteur_id, quantite: bien.quantite, reforme_le: bien.reforme_le,
     };
 
-    const resultat = await transaction(async () => {
+    const resultat = await enEcriture(request, async () => {
       await journaliserDepuis(request, {
         action: type === 'reforme' ? 'reforme' : type === 'perte' ? 'perte' : 'mouvement_bien',
         objet_type: 'bien',
@@ -347,7 +347,7 @@ export default async function routesBiens(app) {
       if (type === 'perte' || type === 'reforme') {
         const typeDocument = type === 'perte' ? 'pv_perte' : 'pv_reforme';
         const numero = await prochainNumero(typeDocument);
-        document = await un(
+        document = await lireUn(request, 
           `insert into document (type, numero, structure_id, objet_type, objet_id, contenu, fige)
            values ($1, $2, $3, 'bien', $4, $5, true) returning *`,
           [
@@ -366,7 +366,7 @@ export default async function routesBiens(app) {
         );
       }
 
-      const mouvement = await un(
+      const mouvement = await lireUn(request, 
         `insert into mouvement (bien_id, structure_id, type, quantite, date, structure_source_code,
                                 structure_cible_code, detenteur_cible, motif, document_id, agent_id)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
@@ -378,7 +378,7 @@ export default async function routesBiens(app) {
         ],
       );
 
-      const apres = await un(
+      const apres = await lireUn(request, 
         `update bien set etat = $2,
                 site_id = coalesce($3, site_id),
                 detenteur_id = coalesce($4, detenteur_id),
