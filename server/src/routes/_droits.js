@@ -73,13 +73,20 @@ async function chargerAgentEnContexte(identifiant) {
  *  dans l'en-tête — ce qui, le jour où l'authentification réelle arrivera,
  *  devra passer par un jeton à usage unique plutôt que par un identifiant.
  */
+export const CHEMIN_DU_REPLI = '/api/flux';
+
 export async function identifier(request) {
   const enTete = request.headers['x-agent-id'];
   let parAdresse;
-  if (!enTete && typeof request.url === 'string' && request.url.startsWith('/api/flux')) {
-    // `request.query` n'est pas encore peuplé au stade du hook : on lit l'adresse.
+  if (!enTete && typeof request.url === 'string') {
+    // `request.query` n'est pas encore peuplé au stade du hook : on lit
+    // l'adresse. Le chemin est comparé **exactement**, pour qu'une route qui
+    // commencerait par les mêmes lettres n'hérite pas du repli.
     const q = request.url.indexOf('?');
-    if (q !== -1) parAdresse = new URLSearchParams(request.url.slice(q + 1)).get('agent');
+    const chemin = q === -1 ? request.url : request.url.slice(0, q);
+    if (chemin === CHEMIN_DU_REPLI && q !== -1) {
+      parAdresse = new URLSearchParams(request.url.slice(q + 1)).get('agent');
+    }
   }
   request.agent = await chargerAgent(enTete || parAdresse || undefined);
 }

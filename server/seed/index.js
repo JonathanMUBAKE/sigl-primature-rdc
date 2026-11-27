@@ -5,11 +5,18 @@
 //
 // Il s'exécute sous le rôle propriétaire, qui porte `rolbypassrls` et contourne
 // donc le cloisonnement de l'ADR-001. C'est le seul chemin du dépôt qui le
-// fait, et il est **à fermer en production**.
+// fait, et il est **fermé par défaut** depuis le verrou posé dans `db.js`.
+//
+// Ce script est le seul du dépôt à l'ouvrir, et il l'ouvre ici, en toutes
+// lettres : la variable ne vit que dans ce processus, le serveur
+// (`server/src/index.js`) ne la pose jamais, et `verifierPrivilegeAutorise`
+// refuse de toute façon en production. Un seed lancé contre une base de
+// production échoue donc avant d'écrire la première ligne.
 //
 // TOUT EST FICTIF. Aucune donnée réelle de la Primature.
 
 import {
+  CLE_PRIVILEGE, SESAME_PRIVILEGE,
   enPrivilegie, executerPrivilegie, fermer, verifierConnexion,
 } from '../src/db.js';
 import {
@@ -21,6 +28,10 @@ import {
   chance, dateEntre, entier, hasard, jour, montant, parmi, plusieursParmi,
   reinitialiser,
 } from './aleatoire.js';
+
+// L'ouverture du chemin privilégié, en toutes lettres et dans ce processus
+// seulement. `verifierPrivilegeAutorise` la refusera quand même en production.
+process.env[CLE_PRIVILEGE] = SESAME_PRIVILEGE;
 
 // 18 mois d'historique.
 const HORIZON_JOURS = 548;

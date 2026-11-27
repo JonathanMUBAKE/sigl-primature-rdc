@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { RefreshCw } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { RefreshCw, SlidersHorizontal } from 'lucide-react'
 import Page from '../components/Page.jsx'
 import Bento, { Bloc } from '../components/Bento.jsx'
 import Tableau from '../components/Tableau.jsx'
@@ -10,6 +10,7 @@ import Filtres, { Filtre } from '../components/Filtres.jsx'
 import Bouton from '../components/Bouton.jsx'
 import Chiffre, { RangeeChiffres } from '../components/Chiffre.jsx'
 import { Etat } from '../components/Vide.jsx'
+import SeuilsStock from './SeuilsStock.jsx'
 import api from '../lib/api.js'
 import { useRequete } from '../lib/requete.js'
 import { useFlux, useMarquage } from '../lib/flux.js'
@@ -36,6 +37,8 @@ const CRITICITES = [
 
 export default function Stocks() {
   const [params, setParams] = useSearchParams()
+  const navigue = useNavigate()
+  const { id: articleOuvert } = useParams()
   const q = params.get('q') ?? ''
   const site = params.get('site') ?? ''
   const tension = params.get('tension') ?? ''
@@ -152,6 +155,21 @@ export default function Stocks() {
         nombre: true,
         rendu: (l) => date(l.date_rupture_prevue),
       },
+      {
+        cle: 'seuils',
+        titre: 'Seuils',
+        triable: false,
+        rendu: (l) => (
+          <Bouton
+            taille="petite"
+            icone={SlidersHorizontal}
+            vers={`/stocks/${l.id}${window.location.search}`}
+            titre="Régler le seuil minimum et le seuil critique de cet article"
+          >
+            Régler
+          </Bouton>
+        ),
+      },
     ],
     [],
   )
@@ -246,7 +264,8 @@ export default function Stocks() {
           colonnes={colonnes}
           lignes={lignes}
           cleDeLigne={(l, i) => l.id ?? `${l.categorie_code}-${i}`}
-          ligneSignalee={(l) => ['rupture', 'sous_critique'].includes(l.criticite)}
+          ligneChoisie={(l) => l.id === articleOuvert}
+          ligneSignalee={(l) => ['rupture', 'critique', 'sous_critique'].includes(l.criticite)}
           ligneMarquee={(l) => estMarque(l.id)}
           nomDesLignes="article"
           titreVide="Aucun article de stock"
@@ -258,6 +277,15 @@ export default function Stocks() {
           pied={`${nombre(lignes.length)} article(s) affiché(s) sur ${nombre(total)}`}
         />
       </Etat>
+
+      {articleOuvert ? (
+        <SeuilsStock
+          id={articleOuvert}
+          fenetreJours={resume.fenetre_consommation_jours}
+          surFermeture={() => navigue(`/stocks${window.location.search}`)}
+          surEnregistrement={recharger}
+        />
+      ) : null}
 
       {mouvementsVivants.length > 0 ? (
         <div className="marge-dessus-5">

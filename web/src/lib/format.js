@@ -170,6 +170,18 @@ const LIBELLES = {
   perte: 'Perte',
   declassement: 'Déclassement',
   reemploi: 'Réemploi',
+  // dossier_achat.statut
+  ouvert: 'Ouvert',
+  en_consultation: 'En consultation',
+  attribue: 'Attribué',
+  execute: 'Exécuté',
+  annule: 'Annulé',
+  // bon_commande.statut
+  emis: 'Émis',
+  receptionne: 'Réceptionné',
+  livre_partiel: 'Livré en partie',
+  payable: 'Paiement possible',
+  paye: 'Payé',
   // dossier_achat.procedure
   gre_a_gre: 'Gré à gré',
   consultation: 'Consultation restreinte',

@@ -21,15 +21,60 @@ export const LIAISON_EN_ATTENTE = 'en_attente'
 export const LIAISON_OUVERTE = 'ouverte'
 export const LIAISON_ROMPUE = 'rompue'
 
+/*
+  Le serveur nomme ses événements d'après le champ `objet` de la charge —
+  `stock`, `achat`, `bon_commande`, `document`… — au singulier, tandis que les
+  écrans s'abonnent à des sujets au pluriel. On traduit ici, en un seul
+  endroit, et on écoute les deux écritures : sans cela, `addEventListener`
+  n'entend rien et le temps réel reste muet.
+*/
 const SUJETS = [
   'patrimoine',
   'stocks',
   'besoins',
   'alertes',
   'achats',
+  'documents',
   'journal',
   'tableau-de-bord',
 ]
+
+/** Les sujets qu'un `objet` du serveur concerne. Le premier est le principal. */
+const SUJETS_PAR_OBJET = {
+  patrimoine: ['patrimoine'],
+  bien: ['patrimoine'],
+  mouvement: ['patrimoine'],
+  stock: ['stocks'],
+  stocks: ['stocks'],
+  besoin: ['besoins'],
+  besoins: ['besoins'],
+  etat_besoin: ['besoins', 'documents'],
+  alerte: ['alertes'],
+  alertes: ['alertes'],
+  achat: ['achats'],
+  achats: ['achats'],
+  dossier_achat: ['achats'],
+  bon_commande: ['achats'],
+  pv_reception: ['documents', 'achats'],
+  document: ['documents', 'achats'],
+  documents: ['documents'],
+  journal: ['journal'],
+  'tableau-de-bord': ['tableau-de-bord'],
+}
+
+/** Tous les noms d'événement que le serveur peut poser dans `event:`. */
+const NOMS_ECOUTES = [...new Set([...SUJETS, ...Object.keys(SUJETS_PAR_OBJET)])]
+
+function sujetsDe(charge, nomDeLEvenement) {
+  const candidats = [charge?.sujet, charge?.domaine, charge?.objet, nomDeLEvenement]
+  for (const candidat of candidats) {
+    if (!candidat) continue
+    const trouves = SUJETS_PAR_OBJET[String(candidat)]
+    if (trouves) return trouves
+  }
+  const premier = candidats.find(Boolean)
+  return premier ? [String(premier)] : ['inconnu']
+}
 
 const auditeurs = new Set() // (evenement) => void
 const veilleursDeLiaison = new Set() // (etat) => void
@@ -74,9 +119,13 @@ function lireCharge(message, nomDeLEvenement) {
       charge = { texte: message.data }
     }
   }
-  const sujet = charge?.sujet ?? charge?.domaine ?? nomDeLEvenement ?? 'inconnu'
+  const sujets = sujetsDe(charge, nomDeLEvenement)
   return {
-    sujet,
+    // `sujet` reste le sujet principal, pour les écrans déjà écrits ;
+    // `sujets` porte tous ceux que l'événement concerne.
+    sujet: sujets[0],
+    sujets,
+    objet: charge?.objet ?? nomDeLEvenement ?? null,
     type: charge?.type ?? nomDeLEvenement ?? 'changement',
     id: charge?.id ?? charge?.objet_id ?? null,
     donnees: charge,
@@ -124,9 +173,9 @@ function ouvrir() {
 
   source.onmessage = (message) => distribuer(lireCharge(message, null))
 
-  // Le serveur peut nommer ses événements : on écoute les sujets connus.
-  for (const sujet of SUJETS) {
-    source.addEventListener(sujet, (message) => distribuer(lireCharge(message, sujet)))
+  // Le serveur nomme ses événements : on écoute tous les noms qu'il emploie.
+  for (const nom of NOMS_ECOUTES) {
+    source.addEventListener(nom, (message) => distribuer(lireCharge(message, nom)))
   }
 
   source.onerror = () => {
@@ -220,7 +269,8 @@ export function useFlux(sujets, surChangement) {
   useEffect(() => {
     const retenus = new Set(cle.split('|').filter(Boolean))
     return sabonner((evenement) => {
-      if (retenus.size > 0 && !retenus.has(evenement.sujet)) return
+      const portes = evenement.sujets ?? [evenement.sujet]
+      if (retenus.size > 0 && !portes.some((sujet) => retenus.has(sujet))) return
       rappel.current?.(evenement)
     })
   }, [cle])

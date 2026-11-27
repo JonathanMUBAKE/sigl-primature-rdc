@@ -6,6 +6,8 @@ import TableauDeBord from './pages/TableauDeBord.jsx'
 import Patrimoine from './pages/Patrimoine.jsx'
 import Stocks from './pages/Stocks.jsx'
 import Besoins from './pages/Besoins.jsx'
+import Achats from './pages/Achats.jsx'
+import Receptions from './pages/Receptions.jsx'
 import Fournisseurs from './pages/Fournisseurs.jsx'
 import Alertes from './pages/Alertes.jsx'
 import Journal from './pages/Journal.jsx'
@@ -28,8 +30,13 @@ function Charpente() {
           <Route path="/patrimoine" element={<Patrimoine />} />
           <Route path="/patrimoine/:id" element={<Patrimoine />} />
           <Route path="/stocks" element={<Stocks />} />
+          <Route path="/stocks/:id" element={<Stocks />} />
           <Route path="/besoins" element={<Besoins />} />
           <Route path="/besoins/:id" element={<Besoins />} />
+          <Route path="/achats" element={<Achats />} />
+          <Route path="/achats/:id" element={<Achats />} />
+          <Route path="/receptions" element={<Receptions />} />
+          <Route path="/receptions/:id" element={<Receptions />} />
           <Route path="/fournisseurs" element={<Fournisseurs />} />
           <Route path="/alertes" element={<Alertes />} />
           <Route path="/alertes/:id" element={<Alertes />} />

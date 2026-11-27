@@ -22,17 +22,90 @@ import {
 } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
 import { prochainNumero } from './_numeros.js';
-import { fenetreDecoupageJours, seuilsPassation } from './_parametres.js';
+import { fenetreDecoupageJours, seuilsPassationDetail } from './_parametres.js';
 import { leverAlerte } from './_alertes.js';
 import { publier } from './_flux.js';
 import { rg007 } from '../regles/rg-007.js';
 import { rg008 } from '../regles/rg-008.js';
 import { rg009 } from '../regles/rg-009.js';
 import { rg011 } from '../regles/rg-011.js';
-import { procedurePourMontant } from '../regles/seuils.js';
+import { expliquerProcedure, procedurePourMontant } from '../regles/seuils.js';
 
 const PROCEDURES = ['gre_a_gre', 'consultation', 'aon', 'aoi'];
 const STATUTS_DOSSIER = ['ouvert', 'en_consultation', 'attribue', 'execute', 'clos', 'annule'];
+
+/**
+ * Le fragment SQL qui décrit un fournisseur tel qu'un écran doit le montrer :
+ * sa liste noire **avec son motif**, son délai déclaré, et surtout son **délai
+ * constaté** — la moyenne des jours écoulés entre l'émission de ses bons de
+ * commande et leur livraison effective. Le déclaré est une promesse, le
+ * constaté est un fait ; l'écran des achats a besoin des deux pour choisir.
+ */
+const FOURNISSEUR_CONSTATE = `
+  f.denomination as fournisseur_nom, f.rccm as fournisseur_rccm,
+  f.liste_noire, f.motif_liste_noire, f.actif as fournisseur_actif,
+  f.delai_moyen_jours as fournisseur_delai_declare_jours,
+  (select round(avg(extract(epoch from (x.livre_le - x.emis_le)) / 86400))::int
+     from bon_commande x
+    where x.fournisseur_id = f.id and x.livre_le is not null) as fournisseur_delai_constate_jours,
+  (select count(*)::int from bon_commande x
+    where x.fournisseur_id = f.id and x.livre_le is not null) as fournisseur_livraisons_constatees`;
+
+/**
+ * Pourquoi cette procédure s'applique à ce dossier : quel seuil, à quelle
+ * date. Les seuils retenus à l'ouverture sont figés dans `seuils_appliques` —
+ * c'est ce qui permet de rejuger une décision ancienne avec les seuils
+ * d'alors (RG-007). On explique donc à partir d'eux, pas des seuils du jour.
+ *
+ * `conforme` dit si la procédure inscrite correspond toujours à ce que les
+ * seuils figés commandent : un écart signale une donnée reprise à la main et
+ * mérite un examen.
+ */
+function justifierProcedure(dossier) {
+  const date = dossier.cree_le ? new Date(dossier.cree_le).toISOString().slice(0, 10) : null;
+  const explication = expliquerProcedure(
+    dossier.montant_estime,
+    dossier.seuils_appliques,
+    { date_reference: date },
+  );
+  if (!explication) {
+    return {
+      procedure: dossier.procedure,
+      motif: "Les seuils retenus à l'ouverture de ce dossier ne sont plus lisibles : "
+        + 'faites vérifier les paramètres de passation avant d’y rattacher un bon de commande.',
+      seuil_applique: null,
+      seuil_suivant: null,
+      date_reference: date,
+      conforme: null,
+    };
+  }
+  return { ...explication, conforme: explication.procedure === dossier.procedure };
+}
+
+/** Le fournisseur rassemblé en un seul objet, et l'écart déclaré / constaté. */
+function fournisseurVu(ligne) {
+  if (!ligne) return null;
+  const declare = ligne.fournisseur_delai_declare_jours;
+  const constate = ligne.fournisseur_delai_constate_jours;
+  return {
+    denomination: ligne.fournisseur_nom,
+    rccm: ligne.fournisseur_rccm ?? null,
+    actif: ligne.fournisseur_actif ?? null,
+    liste_noire: ligne.liste_noire ?? false,
+    motif_liste_noire: ligne.motif_liste_noire ?? null,
+    delai_declare_jours: declare ?? null,
+    delai_constate_jours: constate ?? null,
+    livraisons_constatees: ligne.fournisseur_livraisons_constatees ?? 0,
+    ecart_delai_jours:
+      declare !== null && declare !== undefined && constate !== null && constate !== undefined
+        ? constate - declare
+        : null,
+    retard_constate:
+      declare !== null && declare !== undefined && constate !== null && constate !== undefined
+        ? constate > declare
+        : null,
+  };
+}
 
 export default async function routesAchats(app) {
   // --- Les dossiers -----------------------------------------------------
@@ -79,7 +152,11 @@ export default async function routesAchats(app) {
         limit $${params.length + 1} offset $${params.length + 2}`,
       [...params, page.parPage, page.decalage],
     );
-    return liste(donnees, total.n, page);
+    return liste(
+      donnees.map((d) => ({ ...d, justification_procedure: justifierProcedure(d) })),
+      total.n,
+      page,
+    );
   });
 
   app.get('/api/dossiers-achat/:id', {
@@ -93,18 +170,24 @@ export default async function routesAchats(app) {
       [request.params.id],
     );
     if (!dossier) throw nonTrouve("Ce dossier d'achat");
-    const bons = await lireTous(request, 
-      `select bc.*, f.denomination as fournisseur_nom, f.liste_noire
+    const bons = await lireTous(request,
+      `select bc.*, ${FOURNISSEUR_CONSTATE},
+              extract(day from coalesce(bc.livre_le, now()) - bc.emis_le)::int as delai_ecoule_jours
          from bon_commande bc join fournisseur f on f.id = bc.fournisseur_id
         where bc.dossier_id = $1 order by bc.emis_le desc`,
       [dossier.id],
     );
-    const alertes = await lireTous(request, 
+    const alertes = await lireTous(request,
       `select id, code, gravite, explication, statut, suite, cree_le
          from alerte where objet_type = 'dossier_achat' and objet_id = $1 order by cree_le desc`,
       [String(dossier.id)],
     );
-    return { ...dossier, bons_commande: bons, alertes };
+    return {
+      ...dossier,
+      justification_procedure: justifierProcedure(dossier),
+      bons_commande: bons.map((b) => ({ ...b, fournisseur: fournisseurVu(b) })),
+      alertes,
+    };
   });
 
   // --- L'ouverture d'un dossier : RG-007 et RG-008 --------------------
@@ -140,14 +223,22 @@ export default async function routesAchats(app) {
     }
     const structureId = viser(request, besoin?.structure_id ?? request.agent.structure_id);
 
-    // Les seuils en vigueur à la date du dossier, lus dans `parametre`.
-    const seuils = await enLecture(request, () => seuilsPassation(date));
+    // Les seuils en vigueur à la date du dossier, lus dans `parametre`, avec
+    // leur provenance : l'écran doit pouvoir dire quel seuil et de quelle date.
+    const provenance = await enLecture(request, () => seuilsPassationDetail(date));
+    const seuils = provenance.valeur;
     appliquer(rg007({
       montant_estime: corps.montant_estime,
       seuils,
       procedure_proposee: corps.procedure,
     }));
     const procedure = procedurePourMontant(corps.montant_estime, seuils);
+    const justification = expliquerProcedure(corps.montant_estime, seuils, {
+      cle: provenance.cle,
+      date_reference: date,
+      en_vigueur_du: provenance.en_vigueur_du,
+      en_vigueur_au: provenance.en_vigueur_au,
+    });
 
     // RG-008 — le découpage. On regarde les dossiers de même objet, ou du même
     // état de besoin, ouverts dans la fenêtre de surveillance.
@@ -199,6 +290,9 @@ export default async function routesAchats(app) {
         apres: {
           numero, objet: corps.objet, montant_estime: corps.montant_estime, procedure,
           seuils_appliques: seuils, date, etat_besoin_id: corps.etat_besoin_id ?? null,
+          // La raison de la procédure est journalisée avec la décision : c'est
+          // elle qu'un contrôleur relira, pas le calcul refait des années après.
+          justification_procedure: justification,
         },
       });
       const dossier = await lireUn(request, 
@@ -223,7 +317,12 @@ export default async function routesAchats(app) {
 
     publier({ type: 'ouverture', objet: 'achat', id: resultat.id, structure_id: structureId, donnees: { procedure, montant_estime: resultat.montant_estime } });
     reply.code(201);
-    return { ...resultat, seuils_appliques: seuils, dossiers_examines: dossiersLies.length };
+    return {
+      ...resultat,
+      seuils_appliques: seuils,
+      justification_procedure: { ...justification, conforme: true },
+      dossiers_examines: dossiersLies.length,
+    };
   });
 
   // --- Les bons de commande : RG-009 ----------------------------------
@@ -252,10 +351,19 @@ export default async function routesAchats(app) {
       }
     }
     const total = await lireUn(request, `select count(*)::int as n from bon_commande bc ${ou}`, params);
-    const donnees = await lireTous(request, 
-      `select bc.*, f.denomination as fournisseur_nom, f.liste_noire, f.delai_moyen_jours,
+    const donnees = await lireTous(request,
+      `select bc.*, ${FOURNISSEUR_CONSTATE},
+              f.delai_moyen_jours,
               d.numero as dossier_numero, d.objet, d.procedure, d.montant_estime,
-              extract(day from now() - bc.emis_le)::int as anciennete_jours
+              d.seuils_appliques, d.cree_le as dossier_cree_le,
+              extract(day from now() - bc.emis_le)::int as anciennete_jours,
+              extract(day from coalesce(bc.livre_le, now()) - bc.emis_le)::int as delai_ecoule_jours,
+              (select count(*)::int from document r
+                where r.type = 'pv_reception' and r.objet_type = 'bon_commande'
+                  and r.objet_id = bc.id::text) as nombre_pv_reception,
+              exists (select 1 from document c
+                       where c.type = 'certificat_prise_en_charge'
+                         and c.objet_type = 'bon_commande' and c.objet_id = bc.id::text) as pris_en_charge
          from bon_commande bc
          join fournisseur f on f.id = bc.fournisseur_id
          join dossier_achat d on d.id = bc.dossier_id
@@ -264,7 +372,20 @@ export default async function routesAchats(app) {
         limit $${params.length + 1} offset $${params.length + 2}`,
       [...params, page.parPage, page.decalage],
     );
-    return liste(donnees, total.n, page);
+    return liste(
+      donnees.map((b) => ({
+        ...b,
+        fournisseur: fournisseurVu(b),
+        justification_procedure: justifierProcedure({
+          montant_estime: b.montant_estime,
+          procedure: b.procedure,
+          seuils_appliques: b.seuils_appliques,
+          cree_le: b.dossier_cree_le,
+        }),
+      })),
+      total.n,
+      page,
+    );
   });
 
   app.post('/api/bons-commande', {
@@ -309,7 +430,10 @@ export default async function routesAchats(app) {
         'dossier_id',
       );
     }
-    const fournisseur = await lireUn(request, 'select * from fournisseur where id = $1', [request.body.fournisseur_id]);
+    const fournisseur = await lireUn(request,
+      `select f.*, ${FOURNISSEUR_CONSTATE} from fournisseur f where f.id = $1`,
+      [request.body.fournisseur_id],
+    );
     if (!fournisseur) throw nonTrouve('Ce fournisseur');
 
     // RG-009 : aucun bon de commande vers un fournisseur en liste noire.
@@ -380,7 +504,14 @@ export default async function routesAchats(app) {
 
     publier({ type: 'bon_commande', objet: 'achat', id: resultat.bon.id, structure_id: structureId, donnees: { montant: resultat.bon.montant } });
     reply.code(201);
-    return { ...resultat.bon, document: resultat.document, alerte };
+    return {
+      ...resultat.bon,
+      document: resultat.document,
+      fournisseur: fournisseurVu(fournisseur),
+      justification_procedure: justifierProcedure(dossier),
+      cumul_dossier: cumul,
+      alerte,
+    };
   });
 
   // --- Le paiement possible : RG-011 ----------------------------------

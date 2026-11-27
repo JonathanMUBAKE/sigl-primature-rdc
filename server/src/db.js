@@ -251,17 +251,93 @@ export async function consolidation(fn, { agentId = null } = {}) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// LE VERROU DU CHEMIN PRIVILÉGIÉ — ADR-001, amendement du 27/11/2026, §4.
+//
+// Le rôle propriétaire porte `rolbypassrls` : sous lui, les politiques de
+// l'ADR-001 sont inertes et **tout est lisible et écrivable**, y compris la
+// comptabilité des matières d'un établissement autonome, que la Primature n'a
+// juridiquement pas le droit de tenir. C'était « le seul chemin du dépôt qui
+// contourne l'isolation », signalé à fermer avant la mise en service.
+//
+// Il est maintenant fermé par défaut. Pour l'emprunter, il faut deux choses
+// que ni le serveur ni une route ne posent jamais :
+//
+//   1. la variable d'environnement SIGL_PRIVILEGE, à la valeur exacte
+//      `jeu-de-demonstration`. Seul `server/seed/index.js` la pose, dans son
+//      propre processus ; `server/src/index.js` ne la connaît pas. Une route
+//      qui appellerait `enPrivilegie` par erreur échoue donc, bruyamment, dès
+//      le premier appel, plutôt que de servir silencieusement les données
+//      d'un établissement autonome ;
+//   2. un environnement de développement. En production — et en
+//      préproduction — le refus est inconditionnel : même avec la variable,
+//      la porte reste fermée. C'est ce que demandait l'ADR.
+//
+// Le refus est une erreur franche, pas un repli : mieux vaut un seed qui ne
+// démarre pas qu'une isolation contournée sans que personne le sache.
+// ---------------------------------------------------------------------------
+
+/** Le nom de la variable d'environnement qui ouvre le chemin privilégié. */
+export const CLE_PRIVILEGE = 'SIGL_PRIVILEGE';
+
+/** Sa valeur exacte. Posée par le seed, par personne d'autre. */
+export const SESAME_PRIVILEGE = 'jeu-de-demonstration';
+
+const ENVIRONNEMENTS_FERMES = ['production', 'prod', 'preproduction', 'preprod', 'staging'];
+
+export class PrivilegeRefuse extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'PrivilegeRefuse';
+    this.code = 'privilege_refuse';
+    this.statut = 500;
+  }
+}
+
+/**
+ * Autorise — ou refuse — le chemin privilégié. Appelée par `enPrivilegie` et
+ * `executerPrivilegie` avant toute connexion.
+ */
+export function verifierPrivilegeAutorise(portee = 'enPrivilegie') {
+  const environnement = String(
+    process.env.SIGL_ENV || process.env.NODE_ENV || 'developpement',
+  ).toLowerCase();
+
+  if (ENVIRONNEMENTS_FERMES.includes(environnement)) {
+    throw new PrivilegeRefuse(
+      `Le chemin privilégié (${portee}) est fermé en environnement « ${environnement} » : `
+      + "il contourne l'isolation entre structures de l'ADR-001 et donnerait accès à la "
+      + "comptabilité des matières des établissements autonomes. "
+      + 'Passez par transaction({ agentId, structureId }, …) pour une écriture métier, '
+      + 'ou par consolidation(…) pour une lecture d’ensemble. '
+      + "Pour charger un jeu de données, faites-le hors production.",
+    );
+  }
+
+  if (process.env[CLE_PRIVILEGE] !== SESAME_PRIVILEGE) {
+    throw new PrivilegeRefuse(
+      `Le chemin privilégié (${portee}) n'est pas ouvert : il contourne l'isolation entre `
+      + "structures de l'ADR-001, et aucune route ne doit l'emprunter. "
+      + 'Si vous êtes une route ou le serveur, utilisez transaction({ agentId, structureId }, …) '
+      + 'ou consolidation(…). Si vous êtes le jeu de démonstration ou un script '
+      + `d'administration, posez ${CLE_PRIVILEGE}=${SESAME_PRIVILEGE} dans votre processus, `
+      + 'hors production.',
+    );
+  }
+}
+
 /**
  * Le mode privilégié : le rôle propriétaire, qui porte `rolbypassrls` et voit
  * donc tout, y compris les établissements autonomes.
  *
- * Réservé aux migrations, au jeu de démonstration et aux scripts
- * d'administration. **Aucune route ne doit l'appeler.**
+ * Réservé au jeu de démonstration et aux scripts d'administration, et fermé
+ * par défaut — voir le verrou ci-dessus. **Aucune route ne doit l'appeler.**
  *
  * ADR-001, conséquences : « le jeu de démonstration doit s'insérer sous un rôle
  * privilégié, ce qui crée un chemin qu'il faudra fermer en production ».
  */
 export async function enPrivilegie(fn) {
+  verifierPrivilegeAutorise('enPrivilegie');
   const existant = stockageContexte.getStore();
   if (existant) return fn(aides(existant.client));
 
@@ -287,6 +363,7 @@ export async function enPrivilegie(fn) {
  * Pour les scripts d'administration : vidage et recréation du jeu de données.
  */
 export async function executerPrivilegie(sql) {
+  verifierPrivilegeAutorise('executerPrivilegie');
   const client = await obtenirPool().connect();
   try {
     return await client.query(sql);
@@ -308,5 +385,8 @@ export default {
   consolidation,
   enPrivilegie,
   executerPrivilegie,
+  verifierPrivilegeAutorise,
+  CLE_PRIVILEGE,
+  SESAME_PRIVILEGE,
   contexteCourant,
 };

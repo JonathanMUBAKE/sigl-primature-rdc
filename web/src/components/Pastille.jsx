@@ -44,6 +44,19 @@ const TONS = {
   sous_minimum: 'attente',
   rupture_prevue: 'attente',
   normal: 'succes',
+  // dossier_achat.statut
+  ouvert: 'info',
+  en_consultation: 'attente',
+  attribue: 'info',
+  execute: 'succes',
+  annule: 'neutre',
+  // bon_commande.statut — « payable » et « payé » sont des fins heureuses,
+  // « livré en partie » demande une instruction de l'écart.
+  emis: 'attente',
+  receptionne: 'info',
+  livre_partiel: 'attente',
+  payable: 'succes',
+  paye: 'neutre',
   // structure.regime
   integre: 'info',
   autonome: 'attente',

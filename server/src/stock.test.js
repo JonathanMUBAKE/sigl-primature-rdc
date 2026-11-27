@@ -6,7 +6,13 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { enPrivilegie, fermer, transaction } from './db.js';
+import {
+  CLE_PRIVILEGE, SESAME_PRIVILEGE, enPrivilegie, fermer, transaction,
+} from './db.js';
+
+// Le jeu d'épreuve se monte sous le rôle propriétaire : ces essais ouvrent donc
+// le chemin privilégié dans leur propre processus, comme le fait le seed.
+process.env[CLE_PRIVILEGE] = SESAME_PRIVILEGE;
 
 const MARQUE = 'ESSAI-STOCK';
 

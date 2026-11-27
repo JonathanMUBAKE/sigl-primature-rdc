@@ -21,6 +21,85 @@ import { publier } from './_flux.js';
 import { rg010 } from '../regles/rg-010.js';
 import { rg019 } from '../regles/rg-019.js';
 
+/**
+ * Les écarts, ligne par ligne, dans les trois colonnes qu'un écran de
+ * réception doit montrer : **commandé, livré, reçu**.
+ *
+ * Les trois ne se confondent pas, et c'est tout l'intérêt : le fournisseur
+ * livre une quantité (bordereau), le magasinier en accepte une autre (ce qui
+ * est conforme), et la commande en demandait une troisième. Quand la quantité
+ * livrée n'est pas saisie, elle vaut la quantité reçue — on ne suppose pas un
+ * écart qu'on n'a pas constaté.
+ */
+export function lignesAvecEcarts(lignes = []) {
+  return lignes.map((l) => {
+    const commandee = Number(l.quantite_commandee ?? 0);
+    const recue = Number(l.quantite_recue ?? 0);
+    const livree = Number(l.quantite_livree ?? l.quantite_recue ?? 0);
+    const conforme = l.conforme !== false;
+    return {
+      designation: l.designation,
+      categorie_code: l.categorie_code ?? null,
+      quantite_commandee: commandee,
+      quantite_livree: livree,
+      quantite_recue: recue,
+      // Signés : négatif = manquant, positif = excédent.
+      ecart_commande_livre: livree - commandee,
+      ecart_livre_recu: recue - livree,
+      ecart_commande_recu: recue - commandee,
+      conforme,
+      // Une ligne est en écart si l'un des trois chiffres diverge, ou si elle
+      // est déclarée non conforme — une quantité juste mais du matériel
+      // inutilisable est un écart aussi.
+      en_ecart: livree !== commandee || recue !== livree || !conforme,
+      observation: l.observation ?? null,
+    };
+  });
+}
+
+/** Le résumé des écarts d'un PV, pour la ligne de liste et le bandeau. */
+export function resumeEcarts(lignes = []) {
+  const detaillees = lignesAvecEcarts(lignes);
+  const enEcart = detaillees.filter((l) => l.en_ecart);
+  return {
+    lignes: detaillees,
+    nombre_lignes: detaillees.length,
+    nombre_ecarts: enEcart.length,
+    manquants: detaillees.reduce((t, l) => t + Math.max(0, -l.ecart_commande_recu), 0),
+    excedents: detaillees.reduce((t, l) => t + Math.max(0, l.ecart_commande_recu), 0),
+    non_conformes: detaillees.filter((l) => !l.conforme).length,
+    complete: enEcart.length === 0,
+  };
+}
+
+/** Le fournisseur avec son délai **constaté**, et sa liste noire motivée. */
+const FOURNISSEUR_CONSTATE = `
+  f.id as fournisseur_id, f.denomination as fournisseur_nom,
+  f.liste_noire, f.motif_liste_noire,
+  f.delai_moyen_jours as fournisseur_delai_declare_jours,
+  (select round(avg(extract(epoch from (x.livre_le - x.emis_le)) / 86400))::int
+     from bon_commande x
+    where x.fournisseur_id = f.id and x.livre_le is not null) as fournisseur_delai_constate_jours,
+  (select count(*)::int from bon_commande x
+    where x.fournisseur_id = f.id and x.livre_le is not null) as fournisseur_livraisons_constatees`;
+
+function fournisseurVu(ligne) {
+  if (!ligne?.fournisseur_nom) return null;
+  const declare = ligne.fournisseur_delai_declare_jours ?? null;
+  const constate = ligne.fournisseur_delai_constate_jours ?? null;
+  return {
+    id: ligne.fournisseur_id ?? null,
+    denomination: ligne.fournisseur_nom,
+    liste_noire: ligne.liste_noire ?? false,
+    motif_liste_noire: ligne.motif_liste_noire ?? null,
+    delai_declare_jours: declare,
+    delai_constate_jours: constate,
+    livraisons_constatees: ligne.fournisseur_livraisons_constatees ?? 0,
+    ecart_delai_jours: declare !== null && constate !== null ? constate - declare : null,
+    retard_constate: declare !== null && constate !== null ? constate > declare : null,
+  };
+}
+
 export default async function routesReceptions(app) {
   // --- Les PV de réception ---------------------------------------------
   app.get('/api/receptions', {
@@ -48,21 +127,40 @@ export default async function routesReceptions(app) {
       ou += request.query.signe ? ' and d.signe_le is not null' : ' and d.signe_le is null';
     }
     const total = await lireUn(request, `select count(*)::int as n from document d ${ou}`, params);
-    const donnees = await lireTous(request, 
+    const donnees = await lireTous(request,
       `select d.id, d.numero, d.objet_type, d.objet_id, d.contenu, d.signe_le, d.fige, d.cree_le,
               d.structure_id, s.code as structure_code, a.nom as signataire_nom,
+              bc.numero as bon_commande_numero, bc.montant as bon_commande_montant,
+              bc.statut as bon_commande_statut, bc.emis_le as bon_commande_emis_le,
+              bc.livre_le as bon_commande_livre_le,
+              extract(day from coalesce(bc.livre_le, d.cree_le) - bc.emis_le)::int as delai_livraison_jours,
+              da.numero as dossier_numero, da.objet as dossier_objet, da.procedure,
+              ${FOURNISSEUR_CONSTATE},
               exists (select 1 from document c
                        where c.type = 'certificat_prise_en_charge'
                          and c.objet_type = d.objet_type and c.objet_id = d.objet_id) as pris_en_charge
          from document d
          join structure s on s.id = d.structure_id
          left join agent a on a.id = d.signataire_id
+         left join bon_commande bc on bc.id::text = d.objet_id
+         left join dossier_achat da on da.id = bc.dossier_id
+         left join fournisseur f on f.id = bc.fournisseur_id
          ${ou}
         order by d.cree_le desc
         limit $${params.length + 1} offset $${params.length + 2}`,
       [...params, page.parPage, page.decalage],
     );
-    return liste(donnees, total.n, page);
+    // Les écarts sont rendus **dépliés**, ligne par ligne : l'écran ne doit pas
+    // avoir à fouiller le `contenu` figé du PV pour les recalculer.
+    return liste(
+      donnees.map((pv) => ({
+        ...pv,
+        fournisseur: fournisseurVu(pv),
+        ecarts: resumeEcarts(pv.contenu?.lignes ?? []),
+      })),
+      total.n,
+      page,
+    );
   });
 
   app.post('/api/receptions', {
@@ -88,6 +186,10 @@ export default async function routesReceptions(app) {
                 designation: { type: 'string', minLength: 2, maxLength: 200 },
                 categorie_code: { type: ['string', 'null'], maxLength: 40 },
                 quantite_commandee: { type: 'integer', minimum: 0 },
+                // Ce que le fournisseur a présenté au bordereau. Facultatif :
+                // sans elle, le livré vaut le reçu, et on ne suppose pas un
+                // écart qui n'a pas été constaté.
+                quantite_livree: { type: ['integer', 'null'], minimum: 0 },
                 quantite_recue: { type: 'integer', minimum: 0 },
                 conforme: { type: 'boolean', default: true },
                 observation: { type: ['string', 'null'], maxLength: 400 },
@@ -99,7 +201,8 @@ export default async function routesReceptions(app) {
     },
   }, async (request, reply) => {
     const bon = await lireUn(request, 
-      `select bc.*, f.denomination as fournisseur_nom, d.numero as dossier_numero, d.objet,
+      `select bc.*, ${FOURNISSEUR_CONSTATE},
+              d.numero as dossier_numero, d.objet, d.procedure, d.montant_estime,
               e.structure_id
          from bon_commande bc
          join fournisseur f on f.id = bc.fournisseur_id
@@ -131,15 +234,9 @@ export default async function routesReceptions(app) {
       );
     }
 
-    const ecarts = request.body.lignes
-      .filter((l) => l.quantite_recue !== l.quantite_commandee || l.conforme === false)
-      .map((l) => ({
-        designation: l.designation,
-        commandee: l.quantite_commandee,
-        recue: l.quantite_recue,
-        conforme: l.conforme !== false,
-        observation: l.observation ?? null,
-      }));
+    // Les trois colonnes — commandé, livré, reçu — et l'écart de chacune.
+    const resume = resumeEcarts(request.body.lignes);
+    const ecarts = resume.lignes.filter((l) => l.en_ecart);
 
     const resultat = await enEcriture(request, async () => {
       const numero = await prochainNumero('pv_reception');
@@ -169,8 +266,15 @@ export default async function routesReceptions(app) {
             fournisseur: bon.fournisseur_nom,
             site_id: request.body.site_id ?? null,
             observations: request.body.observations ?? null,
-            lignes: request.body.lignes,
+            lignes: resume.lignes,
             ecarts,
+            resume_ecarts: {
+              nombre_lignes: resume.nombre_lignes,
+              nombre_ecarts: resume.nombre_ecarts,
+              manquants: resume.manquants,
+              excedents: resume.excedents,
+              non_conformes: resume.non_conformes,
+            },
             receptionne_par: request.agent.nom,
           }),
           request.agent.id,
@@ -199,7 +303,15 @@ export default async function routesReceptions(app) {
 
     publier({ type: 'reception', objet: 'document', id: resultat.pv.id, structure_id: structureId, donnees: { bon_commande: bon.numero, ecarts: ecarts.length } });
     reply.code(201);
-    return { pv_reception: resultat.pv, bon_commande: resultat.bon, ecarts, alerte };
+    return {
+      pv_reception: resultat.pv,
+      bon_commande: resultat.bon,
+      fournisseur: fournisseurVu(bon),
+      dossier: { numero: bon.dossier_numero, objet: bon.objet, procedure: bon.procedure },
+      ecarts,
+      resume_ecarts: resume,
+      alerte,
+    };
   });
 
   // --- La prise en charge à l'inventaire : RG-010, puis RG-011 --------
@@ -233,7 +345,8 @@ export default async function routesReceptions(app) {
     },
   }, async (request, reply) => {
     const bon = await lireUn(request, 
-      `select bc.*, f.denomination as fournisseur_nom, d.numero as dossier_numero, d.objet,
+      `select bc.*, ${FOURNISSEUR_CONSTATE},
+              d.numero as dossier_numero, d.objet, d.procedure, d.montant_estime,
               e.structure_id
          from bon_commande bc
          join fournisseur f on f.id = bc.fournisseur_id
@@ -367,7 +480,16 @@ export default async function routesReceptions(app) {
     reply.code(201);
     return {
       certificat_prise_en_charge: resultat.certificat,
-      pv_reception: { id: pv.id, numero: pv.numero, signe_le: pv.signe_le },
+      // Le PV dont il découle, et les écarts qu'il a constatés : le comptable
+      // public prend en charge au vu de l'un et de l'autre, pas du seul numéro.
+      pv_reception: {
+        id: pv.id,
+        numero: pv.numero,
+        signe_le: pv.signe_le,
+        ecarts: resumeEcarts(pv.contenu?.lignes ?? []),
+      },
+      fournisseur: fournisseurVu(bon),
+      dossier: { numero: bon.dossier_numero, objet: bon.objet, procedure: bon.procedure },
       entrees_stock: resultat.entrees,
       suite: 'Le paiement peut désormais être marqué possible par le comptable public (RG-011).',
     };

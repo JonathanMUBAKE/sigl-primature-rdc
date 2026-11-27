@@ -5,6 +5,8 @@ import {
   Boxes,
   Warehouse,
   ClipboardList,
+  ShoppingCart,
+  PackageCheck,
   Truck,
   TriangleAlert,
   ScrollText,
@@ -26,6 +28,8 @@ const GROUPES = [
     titre: 'Approvisionnement',
     liens: [
       { to: '/besoins', libelle: 'États de besoin', icone: ClipboardList },
+      { to: '/achats', libelle: 'Achats', icone: ShoppingCart },
+      { to: '/receptions', libelle: 'Réceptions', icone: PackageCheck },
       { to: '/fournisseurs', libelle: 'Fournisseurs', icone: Truck },
     ],
   },

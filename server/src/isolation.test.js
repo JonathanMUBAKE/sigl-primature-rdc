@@ -13,8 +13,14 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import {
+  CLE_PRIVILEGE, SESAME_PRIVILEGE,
   consolidation, enPrivilegie, fermer, transaction,
 } from './db.js';
+
+// Le jeu d'épreuve se monte sous le rôle propriétaire : ces essais ouvrent donc
+// le chemin privilégié dans leur propre processus, comme le fait le seed. C'est
+// `privilege.test.js` qui vérifie que ce chemin reste fermé partout ailleurs.
+process.env[CLE_PRIVILEGE] = SESAME_PRIVILEGE;
 
 const MARQUE = 'ESSAI-ISOLATION';
 
