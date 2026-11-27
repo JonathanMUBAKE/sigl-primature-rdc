@@ -80,7 +80,7 @@ async function principal() {
       const achats = await creerAchats(bd, besoins, fournisseurs);
       const documents = await creerDocuments(bd, structures, agents, biens, besoins, achats);
       const alertes = await creerAlertes(bd, structures, agents, biens, fournisseurs, stocks);
-      const entrees = await creerJournal(bd, agents, biens, besoins);
+      const entrees = await creerJournal(bd, agents, biens, besoins, stocks);
 
       return {
         structure: structures.length,
@@ -1079,7 +1079,65 @@ async function creerAlertes(bd, structures, agents, biens, fournisseurs, stocks)
 // contrôle externe ne soit pas vide. Insertion seule (contrat §1, règle 2).
 // ---------------------------------------------------------------------------
 
-async function creerJournal(bd, agents, biens, besoins) {
+/**
+ * L'historique de consommation des stocks — ce qui manquait.
+ *
+ * Les jours de couverture, la date de rupture prévisible et la proposition de
+ * seuil se calculent tous à partir de la **consommation constatée**, lue dans
+ * le journal : c'est lui qui garde chaque sortie avec ses valeurs avant et
+ * après (RG-020), et aucune table parallèle n'est nécessaire. Mais le jeu de
+ * démonstration ne posait aucune sortie : `consommation_jour` valait 0 sur
+ * toute la ligne, donc ni couverture, ni rupture, ni seuil proposé — et c'est
+ * le magasinier, celui qui ouvre cet écran et règle les seuils, qui se
+ * retrouvait devant des colonnes vides.
+ *
+ * On pose donc une consommation plausible sur la fenêtre de 90 jours que lit
+ * `GET /api/stocks` : deux à sept sorties par article, d'un volume tiré de sa
+ * quantité, chacune horodatée dans la fenêtre. Les quantités de `stock` ne sont
+ * pas retouchées — ce sont elles que la démonstration a choisies.
+ *
+ * L'agent porté est un magasinier ou un comptable des matières **de la
+ * structure de l'article** quand il en existe un : le journal est une preuve,
+ * et une sortie signée par quelqu'un d'une autre structure n'en serait pas une.
+ */
+function entreesDeConsommation(agents, stocks) {
+  const entrees = [];
+  const aUnRole = (a, ...codes) => codes.some((c) => a.roles.includes(c));
+  const secours = agents.find((a) => aUnRole(a, 'comptable_matieres', 'magasinier', 'logistique'));
+
+  for (const article of stocks) {
+    const sortants = agents.filter(
+      (a) => a.structure_id === article.structure_id && aUnRole(a, 'magasinier', 'comptable_matieres'),
+    );
+    const auteur = sortants.length > 0 ? parmi(sortants) : secours;
+    if (!auteur) continue;
+
+    // Le volume mensuel : une fraction de ce qui est en rayon, jamais zéro.
+    const base = Math.max(1, Math.round(Number(article.quantite) / entier(4, 14)));
+    let quantite = Number(article.quantite);
+    for (let n = entier(2, 7); n > 0; n -= 1) {
+      const sortie = Math.max(1, entier(Math.ceil(base / 3), base));
+      const avant = quantite + sortie;
+      entrees.push([
+        auteur.id, 'sortie_stock', 'stock', article.id,
+        { quantite: avant },
+        {
+          quantite,
+          quantite_sortie: sortie,
+          motif: `Sortie au profit d’un service — ${article.designation}`,
+          etat_besoin_id: null,
+          beneficiaire_id: null,
+        },
+        // Dans la fenêtre de 90 jours que lit l'écran des stocks.
+        dateEntre(88, 2).toISOString(),
+      ]);
+      quantite = avant;
+    }
+  }
+  return entrees;
+}
+
+async function creerJournal(bd, agents, biens, besoins, stocks = []) {
   const entrees = [];
   const comptable = agents.find((a) => a.roles.includes('comptable_matieres'));
   const logistique = agents.find((a) => a.roles.includes('logistique'));
@@ -1101,8 +1159,9 @@ async function creerJournal(bd, agents, biens, besoins) {
     admin.id, 'parametre.modifie', 'parametre', 'seuils_passation',
     { consultation: 25_000_000 }, { consultation: 30_000_000 },
   ]);
+  entrees.push(...entreesDeConsommation(agents, stocks));
 
-  for (const [agentId, action, objetType, objetId, avant, apres] of entrees) {
+  for (const [agentId, action, objetType, objetId, avant, apres, horodatage] of entrees) {
     await bd.requete(
       `insert into journal (agent_id, action, objet_type, objet_id, avant, apres, ip, horodatage)
        values ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -1111,7 +1170,7 @@ async function creerJournal(bd, agents, biens, besoins) {
         avant ? JSON.stringify(avant) : null,
         apres ? JSON.stringify(apres) : null,
         `10.${entier(0, 3)}.${entier(0, 255)}.${entier(2, 254)}`,
-        dateEntre(HORIZON_JOURS, 1).toISOString(),
+        horodatage ?? dateEntre(HORIZON_JOURS, 1).toISOString(),
       ],
     );
   }

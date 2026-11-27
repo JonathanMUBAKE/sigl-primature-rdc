@@ -9,6 +9,10 @@
 // La règle du choix :
 //   — portée totale (logistique, direction, contrôle externe) → consolidation,
 //     lecture de toutes les structures, écriture d'aucune ;
+//   — comptable public d'une structure intégrée → transaction positionnée sur
+//     sa structure, **plus** la portée transversale du périmètre intégré : sa
+//     fonction porte sur l'institution et non sur sa cellule, et les
+//     établissements autonomes restent hors de vue ;
 //   — tout autre rôle → transaction positionnée sur **sa** structure.
 //
 // L'écriture, elle, est toujours une transaction positionnée sur la structure
@@ -22,7 +26,7 @@ import {
   un as dbUn, tous as dbTous, requete as dbRequete,
 } from '../db.js';
 import { nonAutorise } from './_commun.js';
-import { porteeTotale } from '../regles/roles.js';
+import { porteeIntegre, porteeTotale } from '../regles/roles.js';
 
 /** Ouvre, si besoin, le contexte de lecture qui convient à l'agent. */
 export async function enLecture(request, fn) {
@@ -35,7 +39,19 @@ export async function enLecture(request, fn) {
   if (porteeTotale(agent)) {
     return consolidation(() => fn(), { agentId: agent.id });
   }
-  return transaction({ agentId: agent.id, structureId: agent.structure_id }, () => fn());
+  return transaction(
+    {
+      agentId: agent.id,
+      structureId: agent.structure_id,
+      // Le comptable public lit tout le périmètre intégré : sa fonction est
+      // transversale (décret 13/050 art. 137), et sans cela la chaîne de la
+      // commande au paiement se bloquait — il voyait les bons de commande de
+      // toute l'institution mais aucun certificat de prise en charge hors de sa
+      // structure, et RG-011 lui opposait un certificat qui existait pourtant.
+      porteeIntegre: porteeIntegre(agent),
+    },
+    () => fn(),
+  );
 }
 
 /**
@@ -66,7 +82,14 @@ export async function enEcriture(request, fn, cibleDemandee = null) {
     );
     if (cible?.regime === 'integre') structureId = cible.id;
   }
-  return transaction({ agentId: agent.id, structureId }, () => fn());
+  // La portée transversale est portée ici aussi, parce qu'une transaction
+  // d'écriture **relit** : le journal, le document qu'elle vient d'insérer, la
+  // pièce qu'elle contrôle. Elle n'élargit que la lecture ;
+  // `sigl_ecriture_permise` l'ignore, donc RG-018 est inchangée.
+  return transaction(
+    { agentId: agent.id, structureId, porteeIntegre: porteeIntegre(agent) },
+    () => fn(),
+  );
 }
 
 // --- Les aides de lecture, qui ouvrent le contexte si nécessaire ---------

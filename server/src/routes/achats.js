@@ -14,8 +14,9 @@
 
 import { enEcriture, enLecture, lireTous, lireUn } from './_sql.js';
 import {
-  ecriture, lecture, viser,
+  ecriture, lecture, structuresDe, verifierLecture, viser,
 } from './_droits.js';
+import { estCentral } from '../regles/roles.js';
 import {
   appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
   ErreurMetier,
@@ -107,6 +108,36 @@ function fournisseurVu(ligne) {
   };
 }
 
+/**
+ * Le périmètre d'un bon de commande — et pourquoi il s'écrit à la main.
+ *
+ * `bon_commande` et `dossier_achat` ne portent pas de `structure_id` : aucune
+ * politique de sécurité au niveau des lignes ne s'y applique (ADR-001). La
+ * liste rendait donc **tous** les bons à tout le monde, alors que
+ * `/api/receptions` et `/api/documents`, qui lisent `document`, sont filtrés par
+ * la base. L'incohérence bloquait la chaîne du paiement : un comptable public
+ * voyait un bon dont le certificat de prise en charge lui restait invisible, et
+ * RG-011 lui opposait l'absence d'une pièce qui existait bel et bien.
+ *
+ * Le périmètre d'un bon est celui de **l'état de besoin qui l'a motivé** : c'est
+ * la seule structure que la chaîne lui attache. À défaut d'état de besoin, c'est
+ * un achat du niveau central, qui n'appartient à aucune structure : il se lit
+ * par les rôles centraux et les portées élargies, pas par une cellule.
+ *
+ * Le filtre porte sur `e.structure_id`, que le RLS a déjà réduit à la portée de
+ * la session : une structure hors portée rend `null`, donc la ligne tombe.
+ * L'alignement est volontaire — la base filtre, la clause le dit.
+ */
+async function clausePerimetreBons(request, params) {
+  const permises = await structuresDe(request);
+  if (permises === null) return ''; // portée totale : lecture consolidée.
+  const central = estCentral(request.agent) ? ' or d.etat_besoin_id is null' : '';
+  if (permises.length === 0) return central ? ` and (false${central})` : ' and false';
+  const places = permises.map((_, i) => `$${params.length + i + 1}`).join(', ');
+  params.push(...permises);
+  return ` and (e.structure_id in (${places})${central})`;
+}
+
 export default async function routesAchats(app) {
   // --- Les dossiers -----------------------------------------------------
   app.get('/api/dossiers-achat', {
@@ -182,10 +213,36 @@ export default async function routesAchats(app) {
          from alerte where objet_type = 'dossier_achat' and objet_id = $1 order by cree_le desc`,
       [String(dossier.id)],
     );
+    // Les lignes du dossier, rendues ici plutôt que reconstituées par l'écran.
+    //
+    // Un dossier d'achat ne porte pas de lignes propres : ce qu'il commande,
+    // c'est la part **achat** de l'état de besoin qui l'a motivé — le reste du
+    // besoin est servi sur stock et ne passe pas par lui. L'écran des
+    // réceptions a besoin de ces quantités pour afficher les écarts commandé /
+    // livré / reçu ; il devait jusqu'ici remonter lui-même à `etat_besoin_id`,
+    // puis filtrer les lignes. C'est le serveur qui le fait, une fois.
+    //
+    // `quantite_commandee` vaut la quantité accordée à l'examen quand elle est
+    // posée, la quantité demandée sinon : c'est ce qui a été engagé.
+    const lignes = dossier.etat_besoin_id
+      ? await lireTous(request,
+        `select l.id, l.rang, l.categorie_code, c.libelle as categorie_libelle,
+                l.designation, l.quantite_demandee, l.quantite_accordee,
+                coalesce(l.quantite_accordee, l.quantite_demandee) as quantite_commandee,
+                l.origine, l.motif
+           from ligne_besoin l
+           left join categorie c on c.code = l.categorie_code
+          where l.etat_besoin_id = $1 and l.origine = 'achat'
+          order by l.rang, l.designation`,
+        [dossier.etat_besoin_id])
+      : [];
     return {
       ...dossier,
       justification_procedure: justifierProcedure(dossier),
       bons_commande: bons.map((b) => ({ ...b, fournisseur: fournisseurVu(b) })),
+      lignes,
+      nombre_lignes: lignes.length,
+      quantite_commandee_totale: lignes.reduce((t, l) => t + Number(l.quantite_commandee ?? 0), 0),
       alertes,
     };
   });
@@ -350,7 +407,18 @@ export default async function routesAchats(app) {
         ou += ` and ${colonne} = $${params.length}`;
       }
     }
-    const total = await lireUn(request, `select count(*)::int as n from bon_commande bc ${ou}`, params);
+    // Le périmètre, comme pour les réceptions et les documents.
+    ou += await clausePerimetreBons(request, params);
+    const DEPUIS = `from bon_commande bc
+         join fournisseur f on f.id = bc.fournisseur_id
+         join dossier_achat d on d.id = bc.dossier_id
+         left join etat_besoin e on e.id = d.etat_besoin_id`;
+    const total = await lireUn(request,
+      `select count(*)::int as n from bon_commande bc
+         join dossier_achat d on d.id = bc.dossier_id
+         left join etat_besoin e on e.id = d.etat_besoin_id
+        ${ou}`,
+      params);
     const donnees = await lireTous(request,
       `select bc.*, ${FOURNISSEUR_CONSTATE},
               f.delai_moyen_jours,
@@ -363,10 +431,9 @@ export default async function routesAchats(app) {
                   and r.objet_id = bc.id::text) as nombre_pv_reception,
               exists (select 1 from document c
                        where c.type = 'certificat_prise_en_charge'
-                         and c.objet_type = 'bon_commande' and c.objet_id = bc.id::text) as pris_en_charge
-         from bon_commande bc
-         join fournisseur f on f.id = bc.fournisseur_id
-         join dossier_achat d on d.id = bc.dossier_id
+                         and c.objet_type = 'bon_commande' and c.objet_id = bc.id::text) as pris_en_charge,
+              e.structure_id, e.numero as etat_besoin_numero
+         ${DEPUIS}
          ${ou}
         order by bc.emis_le desc
         limit $${params.length + 1} offset $${params.length + 2}`,
@@ -528,6 +595,11 @@ export default async function routesAchats(app) {
       [request.params.id],
     );
     if (!bon) throw nonTrouve('Ce bon de commande');
+    // RG-017 — le bon se marque payable dans le périmètre où il se lit. Pour le
+    // comptable public, ce périmètre est l'ensemble des structures intégrées :
+    // sa fonction est transversale, mais elle s'arrête à la frontière d'un
+    // établissement autonome, qui a son propre comptable public.
+    await verifierLecture(request, bon.structure_id);
 
     // RG-011 : aucun paiement marqué possible sans certificat de prise en charge.
     const certificat = await lireUn(request, 

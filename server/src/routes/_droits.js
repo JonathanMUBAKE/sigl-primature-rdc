@@ -145,7 +145,7 @@ export function ecriture(...codes) {
 /** Les structures que l'agent peut lire, ou `null` quand il lit tout. */
 export async function structuresDe(request) {
   if (porteeTotale(request.agent)) return null;
-  const structures = await lireTous(request, 'select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id, regime from structure');
   return structuresLisibles(request.agent, structures);
 }
 
@@ -153,7 +153,7 @@ export async function structuresDe(request) {
 export async function verifierLecture(request, structureId) {
   if (!structureId) return;
   if (porteeTotale(request.agent)) return;
-  const structures = await lireTous(request, 'select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id, regime from structure');
   appliquer(rg017({ agent: request.agent, structure_id: structureId, structures }), 403);
 }
 
@@ -170,7 +170,7 @@ export async function verifierEcritureStructure(request, structureId) {
   appliquer(rg018({ agent: request.agent, structure_cible: cible }), 403);
   viser(request, cible.id);
   if (!porteeTotale(request.agent)) {
-    const structures = await lireTous(request, 'select id, parent_id from structure');
+    const structures = await lireTous(request, 'select id, parent_id, regime from structure');
     const permises = structuresLisibles(request.agent, structures).map(String);
     if (!permises.includes(String(structureId))) {
       throw nonAutorise(
