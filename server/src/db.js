@@ -108,8 +108,8 @@ function clientCourant() {
 export function contexteCourant() {
   const contexte = stockageContexte.getStore();
   if (!contexte) return null;
-  const { mode, agentId, structureId } = contexte;
-  return { mode, agentId, structureId };
+  const { mode, agentId, structureId, porteeIntegre } = contexte;
+  return { mode, agentId, structureId, porteeIntegre: Boolean(porteeIntegre) };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,9 @@ function aides(client) {
  * pool ne garde donc ni rôle ni contexte, ce qui évite la fuite d'un
  * cloisonnement d'une requête à la suivante.
  */
-async function executerDansUnRole({ mode, role, agentId, structureId, consolidation }, fn) {
+async function executerDansUnRole({
+  mode, role, agentId, structureId, consolidation, porteeIntegre = false,
+}, fn) {
   // Transaction imbriquée : on reste dans celle du dessus plutôt que d'ouvrir
   // une seconde transaction sur un autre client, qui ne verrait pas ses écritures.
   const existant = stockageContexte.getStore();
@@ -187,9 +189,17 @@ async function executerDansUnRole({ mode, role, agentId, structureId, consolidat
     await client.query('select set_config($1, $2, true)', [
       'sigl.consolidation', consolidation ? 'oui' : 'non',
     ]);
+    // La portée transversale du comptable public : une **lecture** élargie aux
+    // structures de régime `integre`, et rien d'autre. Elle est posée d'après
+    // les rôles chargés en base par `chargerAgent`, jamais d'après une valeur
+    // venue de la requête, et `sigl_ecriture_permise` l'ignore — voir
+    // `supabase/migrations/20261127030000_portee_comptable_public.sql`.
+    await client.query('select set_config($1, $2, true)', [
+      'sigl.portee_integre', porteeIntegre ? 'oui' : 'non',
+    ]);
 
     const resultat = await stockageContexte.run(
-      { client, mode, agentId, structureId },
+      { client, mode, agentId, structureId, porteeIntegre },
       () => fn(aides(client)),
     );
 
@@ -219,12 +229,12 @@ export async function transaction(contexte, fn) {
       + 'd’administration, utilisez enPrivilegie(fn).',
     );
   }
-  const { agentId = null, structureId = null } = contexte ?? {};
+  const { agentId = null, structureId = null, porteeIntegre = false } = contexte ?? {};
   if (!structureId) {
     throw new ContexteManquant();
   }
   return executerDansUnRole(
-    { mode: 'metier', role: 'sigl_agent', agentId, structureId, consolidation: false },
+    { mode: 'metier', role: 'sigl_agent', agentId, structureId, consolidation: false, porteeIntegre },
     fn,
   );
 }

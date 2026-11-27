@@ -145,16 +145,44 @@ export function ecriture(...codes) {
 /** Les structures que l'agent peut lire, ou `null` quand il lit tout. */
 export async function structuresDe(request) {
   if (porteeTotale(request.agent)) return null;
-  const structures = await lireTous(request, 'select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id, regime from structure');
   return structuresLisibles(request.agent, structures);
 }
 
-/** RG-017 — l'agent peut-il lire les données de cette structure ? */
+/**
+ * RG-017 — l'agent peut-il lire les données de cette structure ?
+ *
+ * Sur une structure vide, ce contrôle **sort sans rien vérifier** : c'est voulu
+ * pour les objets qui n'appartiennent à aucune structure. Mais cela en fait un
+ * contrôle qui s'autodésactive, et il faut savoir ce qu'on lui donne. Le
+ * périmètre d'un objet se lit sur sa propre ligne, jamais au bout d'une
+ * jointure externe vers une table cloisonnée : la base a le droit de rendre
+ * `null`, et un `null` ne se distingue pas d'une absence de cloisonnement.
+ * C'est ce qui avait effacé le contrôle sur les bons de commande — voir la
+ * migration 20261127040000. Quand le périmètre doit exister, employer
+ * `verifierLectureStricte`.
+ */
 export async function verifierLecture(request, structureId) {
   if (!structureId) return;
   if (porteeTotale(request.agent)) return;
-  const structures = await lireTous(request, 'select id, parent_id from structure');
+  const structures = await lireTous(request, 'select id, parent_id, regime from structure');
   appliquer(rg017({ agent: request.agent, structure_id: structureId, structures }), 403);
+}
+
+/**
+ * RG-017, pour un objet dont le rattachement est obligatoire. Un périmètre
+ * indéterminable est refusé, pas ignoré : sans cela, une erreur de lecture du
+ * rattachement vaut autorisation, ce qui est l'inverse de ce qu'on veut d'un
+ * contrôle de sécurité.
+ */
+export async function verifierLectureStricte(request, structureId, quoi = 'Cet élément') {
+  if (!structureId) {
+    throw nonAutorise(
+      `${quoi} n'a pas de structure de rattachement : l'opération est refusée faute de pouvoir en vérifier le périmètre.`,
+      'structure_id',
+    );
+  }
+  return verifierLecture(request, structureId);
 }
 
 /**
@@ -170,7 +198,7 @@ export async function verifierEcritureStructure(request, structureId) {
   appliquer(rg018({ agent: request.agent, structure_cible: cible }), 403);
   viser(request, cible.id);
   if (!porteeTotale(request.agent)) {
-    const structures = await lireTous(request, 'select id, parent_id from structure');
+    const structures = await lireTous(request, 'select id, parent_id, regime from structure');
     const permises = structuresLisibles(request.agent, structures).map(String);
     if (!permises.includes(String(structureId))) {
       throw nonAutorise(
