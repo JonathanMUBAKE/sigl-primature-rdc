@@ -42,6 +42,12 @@ export const ACTIONS_SENSIBLES = [
   'enregistrement_decision_domaines',
   'demande_reemploi', 'cloture_offre_reemploi', 'arbitrage_demande_reemploi',
   'reemploi_prononce',
+  // La reprise des inventaires existants. Deux actions, et la seconde est la
+  // plus lourde du logiciel : elle crée des milliers de biens d'un coup. Le
+  // journal doit porter le fichier, son empreinte et le compte des verdicts —
+  // c'est la seule trace qui permettra, dans un an, de dire d'où vient un bien
+  // que personne n'a saisi à l'écran.
+  'reprise_deposee', 'reprise_appliquee',
 ];
 
 export function estSensible(action) {

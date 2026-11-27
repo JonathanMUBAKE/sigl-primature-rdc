@@ -77,7 +77,12 @@ export default function Patrimoine() {
         titre: "Valeur d'acquisition",
         nombre: true,
         valeur: (b) => Number(b.valeur_acquisition ?? 0),
-        rendu: (b) => montantCourt(b.valeur_acquisition),
+        // Une valeur reprise d'un inventaire qui ne la portait pas vaut zéro
+        // en base, et zéro est le prix d'un don : l'écran ne doit pas affirmer
+        // ce que le registre ne sait pas.
+        rendu: (b) => (b.valeur_acquisition_connue === false
+          ? <span className="texte-discret" title="L'inventaire repris ne portait pas la valeur d'entrée de ce bien">non documentée</span>
+          : montantCourt(b.valeur_acquisition)),
       },
       {
         cle: 'date_acquisition',

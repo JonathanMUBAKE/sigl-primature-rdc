@@ -130,7 +130,8 @@ export default async function routesBiens(app) {
     const donnees = await lireTous(request, 
       `select b.id, b.immatriculation, b.designation, b.marque, b.modele, b.categorie_code,
               c.libelle as categorie_libelle, b.classement, b.etat, b.suivi, b.quantite,
-              b.valeur_acquisition, b.cout_remplacement, b.date_acquisition, b.mode_entree,
+              b.valeur_acquisition, b.valeur_acquisition_connue, b.cout_remplacement,
+              b.date_acquisition, b.mode_entree,
               b.objectif_detention, b.structure_id, s.code as structure_code, s.nom as structure_nom,
               s.regime as structure_regime, b.site_id, si.nom as site_nom,
               b.detenteur_id, a.nom as detenteur_nom, b.reforme_le, b.maj_le

@@ -26,6 +26,10 @@ export const PREFIXES = {
   // série. Le procès-verbal de réforme, lui, garde la série `PVR` déjà posée —
   // c'est la même pièce qu'avant, produite au bout d'un circuit plus long.
   dossier_reforme: 'DR',
+  // La reprise d'un inventaire existant porte sa série : c'est une pièce du
+  // dossier, et un agent doit pouvoir citer « la reprise REP-2026-00003 »
+  // devant un contrôle qui demande d'où viennent trois mille biens.
+  reprise: 'REP',
   offre_reemploi: 'OR',
 };
 

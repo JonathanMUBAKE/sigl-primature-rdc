@@ -519,3 +519,73 @@ l'ai fabriquée à la main sur la base locale pour la vérifier, en clôturant l
 DR-2026-00005, et `npm run seed` rend au jeu son état d'origine. Et l'étape 5 comme l'étape 6 du
 chemin de fer s'affichent « en cours » en même temps sur un dossier offert : deux chemins restent
 ouverts, c'est exact, mais cela se lit mal.
+
+---
+
+## 27 novembre 2026 — La reprise des inventaires existants : lot 1
+
+Le résultat à atteindre (§7.1) place ce lot avant tous les autres, et pour une raison qui n'est pas
+technique : un système de patrimoine qui démarre vide renvoie les agents à leurs classeurs, et
+l'outil meurt en trois semaines. La Primature possède déjà ses inventaires. C'est au SIGL de
+reprendre leur contenu, pas aux agents de le retaper. Contrat gelé avant la première ligne de code
+dans `docs/LOT-REPRISE.md`, comme pour les lots inventaire et réforme.
+
+**Deux temps, et c'est la décision structurante.** Le dépôt analyse et n'écrit aucun bien (RG-034) ;
+l'application écrit, et seulement sur décision d'un humain. Ce n'est pas une commodité d'interface :
+c'est la seule opération du SIGL qui crée des milliers de lignes d'un coup, et une reprise appliquée
+directement au dépôt serait la seule action du logiciel qu'on ne pourrait ni relire ni refuser avant
+qu'elle ait lieu.
+
+**Le rapport ligne par ligne est le lot, pas un ornement.** Un import qui annonce « 412 lignes sur
+1 500 importées » oblige l'agent à comparer deux listes à la main ; il abandonne, et c'est l'outil
+qu'il abandonne. Chaque ligne écartée nomme donc **sa colonne et son motif**, et chaque compteur du
+résumé mène aux lignes qu'il compte. Une colonne d'en-tête inconnue fait refuser le fichier entier en
+la nommant, parce qu'une colonne mal orthographiée est une donnée perdue en silence.
+
+**Quatre règles, numérotées et éprouvées.** RG-034 (analyser puis décider), RG-035 (une identité déjà
+au registre est écartée, jamais écrasée), RG-036 (une reprise ne s'applique qu'une fois — verrou en
+base par le déclencheur `sigl_reprise_figee`, car une seconde application doublerait le patrimoine et
+rien ne distinguerait plus le doublon de l'original), RG-037 (une reprise ne crée de biens que dans
+sa structure). Migrations `20261127090000_reprise.sql` et `20261127090100_rattachement_reprise.sql` :
+additives, sans aucun `drop`, conformes aux migrations en deux temps du §7.10.
+
+**Trois décisions prises seul, et ce sur quoi elles reposent.**
+
+1. *Une valeur d'acquisition inconnue se dit inconnue.* Un inventaire papier ne porte presque jamais
+   la valeur d'entrée. Exiger la colonne aurait fait rejeter l'essentiel des lignes ; écrire zéro en
+   silence aurait été pire, car zéro est le prix d'un don et le registre aurait affirmé une fausseté
+   qu'aucun écran n'aurait démentie. D'où `bien.valeur_acquisition_connue`, et deux écrans qui
+   affichent « non documentée » au lieu d'un montant.
+2. *Le détenteur se désigne par son adresse, jamais par son nom.* Rapprocher « Mbala D. » d'un agent
+   par ressemblance affecterait des biens à la mauvaise personne, et l'historique de garde est
+   précisément ce qu'un contrôle vient vérifier.
+3. *Les articles de stock ne sont pas dans ce lot, et l'étiquetage non plus.* Un stock n'a pas
+   d'identité individuelle : sa reprise est un état de quantités à une date, c'est-à-dire un
+   inventaire, qui a déjà son circuit (RG-023 à RG-026). L'étiquetage (§7.2) suppose un registre
+   peuplé et des immatriculations stables — ce que ce lot produit.
+
+**Ce que l'essai a trouvé et que je n'avais pas vu.** Une ligne sans immatriculation ni numéro de
+série n'a rien par quoi se reconnaître : redéposer le fichier la recréait, et la reprise rejouable ne
+tenait pas sa promesse. D'où l'empreinte — libellé, catégorie, date, emplacement — qui **présume** le
+doublon sans conclure, parce que deux bureaux identiques entrés le même jour existent vraiment. Le
+choix du défaut n'est pas neutre : un patrimoine doublé ne se démêle plus, tandis qu'une ligne
+écartée à tort se lit dans le rapport et se corrige en une colonne. Le motif dit comment faire passer
+un vrai second exemplaire.
+
+**Deux défauts corrigés au passage.** `achats-ecrans.test.js` posait le délai déclaré d'un
+fournisseur à 21 jours sans le rendre : l'essai laissait sa marque sur le jeu de démonstration.
+Et `refuserOuIntrouvable`, écrit pour la chaîne d'achat, vivait dans `achats.js` : il est devenu
+`_rattachement.js`, et `sigl_structure_rattachement` connaît la reprise — une fonctionnalité s'écrit
+une fois et s'appelle partout.
+
+**Une addition au système de design, nommée.** La règle « le texte est coupé, pas replié » tenait
+toutes les cellules à 44 pixels. Appliquée au motif d'un refus, elle le tronquait à « Le code de
+catégorie CATEGORIE-QUI-NEXIS… » — c'est-à-dire qu'elle supprimait la seule information de l'écran.
+D'où `cellule-prose`, exception explicite pour une colonne dont le texte **est** l'information, et
+une seule par tableau.
+
+396 essais, 396 passent. Vérifié au navigateur de bout en bout, sous le comptable des matières de la
+CGIG : dépôt d'un fichier de cinq lignes, rapport rendu (deux à créer, deux refusées avec leur
+colonne, une déjà au registre), application, puis contrôle en base — l'immatriculation
+`INV/CGIG/2014/0071` conservée telle quelle, `BRT-CGIG-CHA-00011` générée pour le bien qui n'en avait
+pas. Les biens de vérification ont été retirés de la base de démonstration après coup.

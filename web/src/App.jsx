@@ -11,6 +11,7 @@ import Receptions from './pages/Receptions.jsx'
 import Fournisseurs from './pages/Fournisseurs.jsx'
 import Inventaire from './pages/Inventaire.jsx'
 import Campagne from './pages/Campagne.jsx'
+import Reprises from './pages/Reprises.jsx'
 import Rapprochements from './pages/Rapprochements.jsx'
 import Reformes from './pages/Reformes.jsx'
 import Reforme from './pages/Reforme.jsx'
@@ -48,6 +49,11 @@ function Charpente() {
               un écran plein, pas un tiroir par-dessus la liste. */}
           <Route path="/inventaire" element={<Inventaire />} />
           <Route path="/inventaire/:id" element={<Campagne />} />
+          {/* La reprise des inventaires existants : le rapport ligne par
+              ligne est un POSTE DE TRAVAIL, donc un écran plein. On y lit des
+              centaines de lignes avant de décider — pas dans un tiroir. */}
+          <Route path="/reprises" element={<Reprises />} />
+          <Route path="/reprises/:id" element={<Reprises />} />
           <Route path="/rapprochements" element={<Rapprochements />} />
           <Route path="/rapprochements/:id" element={<Rapprochements />} />
           {/* Le circuit de réforme : le dossier est un POSTE DE TRAVAIL, donc

@@ -183,6 +183,15 @@ export const api = {
   // son avancement, ses constats, ses écarts, et `clotures_possible` : ce que
   // RG-023 et RG-024 répondraient, dit d'avance par le serveur. L'écran ne
   // recalcule ni l'un ni l'autre.
+  // La reprise des inventaires existants (`docs/LOT-REPRISE.md`). Le dépôt
+  // analyse et n'écrit rien ; `appliquerReprise` est la seule écriture.
+  reprises: (p, o) => lire('/reprises', p, o),
+  reprise: (id, o) => lire(`/reprises/${encodeURIComponent(id)}`, null, o),
+  lignesDeReprise: (id, p, o) => lire(`/reprises/${encodeURIComponent(id)}/lignes`, p, o),
+  deposerReprise: (corps, o) => poster('/reprises', corps, o),
+  appliquerReprise: (id, o) =>
+    poster(`/reprises/${encodeURIComponent(id)}/appliquer`, undefined, o),
+
   campagnesInventaire: (p, o) => lire('/campagnes-inventaire', p, o),
   campagneInventaire: (id, o) => lire(`/campagnes-inventaire/${encodeURIComponent(id)}`, null, o),
   creerCampagneInventaire: (corps, o) => poster('/campagnes-inventaire', corps, o),

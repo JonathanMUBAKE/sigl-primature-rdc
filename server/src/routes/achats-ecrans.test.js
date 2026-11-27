@@ -35,6 +35,7 @@ let logistique;      // ouvre le dossier et émet le bon de commande
 let magasinier;      // réceptionne — jamais celui qui a engagé
 let comptable;       // prend en charge — jamais celui qui a réceptionné
 let fournisseur;
+let delaiDeclareInitial;   // rendu au jeu de démonstration à la fin
 let articleStock;
 
 /** Une requête au nom d'un agent, par l'en-tête du contrat. */
@@ -62,12 +63,22 @@ before(async () => {
 
     // Un fournisseur propre, et son délai **déclaré** connu : c'est à lui que
     // le délai constaté se comparera.
+    //
+    // La valeur d'origine est relevée avant d'être écrasée, et rendue dans le
+    // `after`. Un essai qui laisse sa marque sur le jeu de démonstration rend
+    // les suivants dépendants de son ordre d'exécution : le délai déclaré d'un
+    // fournisseur se lit dans son comportement constaté, et un 21 oublié s'y
+    // serait vu sans qu'on sache d'où il venait.
+    const cible = await bd.un(
+      `select id, delai_moyen_jours from fournisseur
+        where not liste_noire and actif and delai_moyen_jours is not null
+        order by denomination limit 1`,
+    );
+    delaiDeclareInitial = cible?.delai_moyen_jours ?? null;
     fournisseur = await bd.un(
-      `update fournisseur set delai_moyen_jours = 21
-        where id = (select id from fournisseur
-                     where not liste_noire and actif and delai_moyen_jours is not null
-                     order by denomination limit 1)
+      `update fournisseur set delai_moyen_jours = 21 where id = $1
        returning id, denomination, delai_moyen_jours`,
+      [cible?.id ?? null],
     );
 
     articleStock = await bd.un(
@@ -103,6 +114,13 @@ after(async () => {
     }
     await bd.requete('delete from dossier_achat where objet like $1', [`${MARQUE}%`]);
     await bd.requete("delete from journal where apres->>'objet' like $1", [`${MARQUE}%`]);
+    // Le délai déclaré est rendu tel qu'il était trouvé.
+    if (fournisseur && delaiDeclareInitial !== undefined) {
+      await bd.requete(
+        'update fournisseur set delai_moyen_jours = $2 where id = $1',
+        [fournisseur.id, delaiDeclareInitial],
+      );
+    }
   });
   await fermer();
 });

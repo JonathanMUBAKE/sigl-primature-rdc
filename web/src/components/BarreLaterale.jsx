@@ -14,6 +14,7 @@ import {
   ScrollText,
   FileWarning,
   PackageOpen,
+  FileUp,
 } from 'lucide-react'
 
 const GROUPES = [
@@ -25,6 +26,10 @@ const GROUPES = [
     titre: 'Patrimoine',
     liens: [
       { to: '/patrimoine', libelle: 'Biens', icone: Boxes },
+      // La reprise est sous Patrimoine, et non sous Contrôle : c'est par elle
+      // que le registre se peuple, et un agent qui cherche « comment entrer
+      // mon inventaire » la cherche là où sont les biens.
+      { to: '/reprises', libelle: 'Reprise d’inventaire', icone: FileUp },
       { to: '/stocks', libelle: 'Stocks', icone: Warehouse },
       // Le circuit de réforme, et le catalogue de ce que les autres
       // structures offrent. « Biens offerts » est dit sans jargon : c'est

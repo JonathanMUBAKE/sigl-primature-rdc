@@ -21,6 +21,7 @@ import {
   appliquer, donneesInvalides, liste, nonTrouve, pagination, schemaIdParam, schemaPagination,
   ErreurMetier,
 } from './_commun.js';
+import { refuserOuIntrouvable } from './_rattachement.js';
 import { journaliserDepuis } from './_journal.js';
 import { prochainNumero } from './_numeros.js';
 import { fenetreDecoupageJours, seuilsPassationDetail } from './_parametres.js';
@@ -130,33 +131,6 @@ function fournisseurVu(ligne) {
  * se distingue pas d'une absence de cloisonnement — le contrôle s'effaçait
  * exactement là où il devait mordre. Voir la migration 20261127040000.
  */
-/**
- * Le refus motivé, plutôt que « introuvable ».
- *
- * Depuis que `dossier_achat` et `bon_commande` sont cloisonnées par la base
- * (migration 20261127050000), une ligne hors périmètre n'est plus rendue : la
- * lecture ne distingue donc plus « cette pièce n'existe pas » de « cette pièce
- * n'est pas à vous ». Pour un comptable public, la différence compte : il a
- * besoin de lire « ce bon relève de l'ARMP, qui tient ses propres écritures »,
- * et non « introuvable », qui se lit comme une panne du logiciel.
- *
- * `sigl_structure_rattachement` rend l'identifiant de structure **et rien
- * d'autre** — une donnée que tout agent lit déjà dans l'organigramme. On s'en
- * sert pour opposer RG-017 en la nommant, puis on retombe sur l'absence.
- *
- * À appeler seulement quand la lecture n'a rien rendu.
- */
-async function refuserOuIntrouvable(request, objet, id, quoi) {
-  const rattachement = await lireUn(
-    request, 'select sigl_structure_rattachement($1, $2) as structure_id', [objet, id],
-  );
-  if (!rattachement?.structure_id) throw nonTrouve(quoi);
-  await verifierLectureStricte(request, rattachement.structure_id, quoi);
-  // La pièce existe, elle est dans le périmètre, et la lecture ne l'a pourtant
-  // pas rendue : il n'y a rien d'honnête à répondre d'autre que l'absence.
-  throw nonTrouve(quoi);
-}
-
 async function clausePerimetre(request, params, colonne) {
   const permises = await structuresDe(request);
   if (permises === null) return ''; // portée totale : lecture consolidée.

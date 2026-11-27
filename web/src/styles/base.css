@@ -633,6 +633,22 @@ tr.vient-de-changer > td {
   text-overflow: ellipsis;
 }
 
+/*
+  L'exception nommée : une cellule dont le texte EST l'information — le motif
+  d'un refus de reprise, par exemple. Coupée, elle ne dit plus quoi corriger.
+  La ligne grandit alors, et c'est le prix assumé de la lisibilité.
+*/
+.tableau tbody td.cellule-prose {
+  max-width: 34rem;
+  height: auto;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.45;
+  padding-top: var(--espace-3);
+  padding-bottom: var(--espace-3);
+}
+
 .tableau tbody tr:last-child td {
   border-bottom: none;
 }

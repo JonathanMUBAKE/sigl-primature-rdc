@@ -9,8 +9,14 @@ import { compte as direCompte } from '../lib/format.js'
   En-tête teinté, lignes alternées, filets horizontaux seulement, chiffres
   alignés à droite en chiffres tabulaires, tri par colonne.
 
-  Une colonne : { cle, titre, nombre?, triable?, valeur?, rendu?, largeur? }
+  Une colonne : { cle, titre, nombre?, triable?, valeur?, rendu?, largeur?, prose? }
   - valeur(ligne) sert au tri ; rendu(ligne) à l'affichage.
+  - `prose` est l'exception nommée à la règle « le texte est coupé, pas
+    replié » : une colonne dont le texte EST l'information, et non son
+    étiquette. Le motif d'un refus en est le cas type — tronqué, il ne dit plus
+    quoi corriger, et l'écran perd sa raison d'être. À n'employer que là.
+    Une seule colonne en prose par tableau, sinon la lecture en colonnes est
+    perdue.
 */
 export default function Tableau({
   colonnes,
@@ -128,7 +134,10 @@ export default function Tableau({
                 }
               >
                 {colonnes.map((colonne) => (
-                  <td key={colonne.cle} className={clsx(colonne.nombre && 'col-nombre')}>
+                  <td
+                    key={colonne.cle}
+                    className={clsx(colonne.nombre && 'col-nombre', colonne.prose && 'cellule-prose')}
+                  >
                     {colonne.rendu ? colonne.rendu(ligne) : affichageBrut(valeurDe(colonne, ligne))}
                   </td>
                 ))}

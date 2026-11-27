@@ -90,7 +90,15 @@ export default function FicheBien({ id, surFermeture }) {
               entrees={[
                 { cle: "Mode d'entrée", valeur: libelle(b.mode_entree) },
                 { cle: 'Objectif de détention', valeur: libelle(b.objectif_detention) },
-                { cle: "Valeur d'acquisition", valeur: montant(b.valeur_acquisition) },
+                {
+                  cle: "Valeur d'acquisition",
+                  // Zéro est le prix d'un don. Un bien repris d'un inventaire
+                  // qui ne portait pas la valeur le dit, plutôt que d'afficher
+                  // un montant que personne n'a jamais écrit.
+                  valeur: b.valeur_acquisition_connue === false
+                    ? <span className="texte-discret">Non documentée — l’inventaire repris ne la portait pas</span>
+                    : montant(b.valeur_acquisition),
+                },
                 {
                   cle: 'Coût de remplacement',
                   valeur:
