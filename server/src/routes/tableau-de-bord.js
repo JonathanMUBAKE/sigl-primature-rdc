@@ -327,6 +327,33 @@ export default async function routesTableauDeBord(app) {
       pTete2,
     );
 
+    // --- Le réemploi : ce que les autres structures offrent -------------
+    //
+    // **Ce compte est calculé ici, et pas à l'écran.** L'interface prenait le
+    // `total` de `GET /api/offres-reemploi?ouvertes=true`, qui compte *toutes*
+    // les offres ouvertes, la sienne comprise. En écarter les siennes aurait
+    // été un jugement métier rendu par l'écran, ce que le contrat interdit —
+    // tout chiffre vient du serveur.
+    //
+    // Aucun filtre de portée ici, et c'est voulu : `offre_reemploi` est une
+    // publication, lisible de toute session positionnée. Poser `filtre()`
+    // dessus aurait ramené le chiffre au périmètre du lecteur, et vidé de son
+    // sens la seule étape du circuit qui regarde dehors.
+    const reemploi = await lireUn(request,
+      `select count(*)::int as ouvertes,
+              count(*) filter (where o.structure_id is distinct from $1::uuid)::int as ailleurs,
+              count(*) filter (where o.structure_id = $1::uuid)::int as miennes,
+              count(*) filter (where o.cloture_prevue_le < now() + interval '7 days')::int as bientot_closes
+         from offre_reemploi o where o.statut = 'ouverte'`,
+      [request.agent.structure_id ?? null],
+    );
+    const mesDemandes = await lireUn(request,
+      `select count(*) filter (where m.statut = 'deposee')::int as deposees,
+              count(*)::int as total
+         from demande_reemploi m where m.structure_demandeuse_id = $1::uuid`,
+      [request.agent.structure_id ?? null],
+    );
+
     return {
       portee: {
         agent: request.agent.nom,
@@ -343,6 +370,14 @@ export default async function routesTableauDeBord(app) {
         // condition est levée n'attend plus qu'un classement, elle n'appelle
         // pas une décision d'approvisionnement.
         { libelle: 'Alertes actives', valeur: alertesActives, lien: '/api/alertes?nature=active' },
+        // Le gisement d'économies du lot « réforme », en un nombre cliquable :
+        // les biens que **les autres** structures offrent au réemploi. Deux
+        // clics depuis le tableau de bord, comme le contrat du lot l'exige.
+        {
+          libelle: 'Biens offerts au réemploi par d’autres structures',
+          valeur: reemploi.ailleurs,
+          lien: '/api/offres-reemploi?ouvertes=true',
+        },
       ],
       en_attente_de_decision: {
         total: enAttenteDeDecision.length,
@@ -399,6 +434,18 @@ export default async function routesTableauDeBord(app) {
           livraisons_partielles: { valeur: ecarts.livraisons_partielles, lien: '/api/bons-commande?statut=livre_partiel' },
           lien: '/api/bons-commande',
         },
+      },
+      // Le réemploi. `offres_ouvertes_ailleurs` est le chiffre que porte le
+      // chiffre de tête : les offres ouvertes **hors structure du lecteur**.
+      reemploi: {
+        offres_ouvertes: reemploi.ouvertes,
+        offres_ouvertes_ailleurs: reemploi.ailleurs,
+        offres_ouvertes_miennes: reemploi.miennes,
+        offres_bientot_closes: reemploi.bientot_closes,
+        mes_demandes_deposees: mesDemandes.deposees,
+        mes_demandes: mesDemandes.total,
+        lien: '/api/offres-reemploi?ouvertes=true',
+        lien_mes_demandes: '/api/offres-reemploi',
       },
       alertes: {
         par_gravite: alertes.map((a) => ({

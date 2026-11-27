@@ -12,6 +12,8 @@ import {
   Scale,
   TriangleAlert,
   ScrollText,
+  FileWarning,
+  PackageOpen,
 } from 'lucide-react'
 
 const GROUPES = [
@@ -24,6 +26,12 @@ const GROUPES = [
     liens: [
       { to: '/patrimoine', libelle: 'Biens', icone: Boxes },
       { to: '/stocks', libelle: 'Stocks', icone: Warehouse },
+      // Le circuit de réforme, et le catalogue de ce que les autres
+      // structures offrent. « Biens offerts » est dit sans jargon : c'est
+      // l'entrée que le lot veut à deux clics du tableau de bord, et elle ne
+      // vaut que si un chef de structure la reconnaît sans explication.
+      { to: '/reforme', libelle: 'Réformes', icone: FileWarning },
+      { to: '/reemploi', libelle: 'Biens offerts', icone: PackageOpen },
     ],
   },
   {

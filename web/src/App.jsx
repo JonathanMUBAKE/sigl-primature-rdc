@@ -12,6 +12,9 @@ import Fournisseurs from './pages/Fournisseurs.jsx'
 import Inventaire from './pages/Inventaire.jsx'
 import Campagne from './pages/Campagne.jsx'
 import Rapprochements from './pages/Rapprochements.jsx'
+import Reformes from './pages/Reformes.jsx'
+import Reforme from './pages/Reforme.jsx'
+import Reemploi from './pages/Reemploi.jsx'
 import Alertes from './pages/Alertes.jsx'
 import Journal from './pages/Journal.jsx'
 import ChoixProfil from './pages/ChoixProfil.jsx'
@@ -47,6 +50,13 @@ function Charpente() {
           <Route path="/inventaire/:id" element={<Campagne />} />
           <Route path="/rapprochements" element={<Rapprochements />} />
           <Route path="/rapprochements/:id" element={<Rapprochements />} />
+          {/* Le circuit de réforme : le dossier est un POSTE DE TRAVAIL, donc
+              un écran plein. Le catalogue des biens offerts, lui, est lisible
+              de toutes les structures — c'est le seul objet économique du lot,
+              et il échoue si son entrée est enfouie. */}
+          <Route path="/reforme" element={<Reformes />} />
+          <Route path="/reforme/:id" element={<Reforme />} />
+          <Route path="/reemploi" element={<Reemploi />} />
           <Route path="/alertes" element={<Alertes />} />
           <Route path="/alertes/:id" element={<Alertes />} />
           <Route path="/journal" element={<Journal />} />

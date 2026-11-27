@@ -223,3 +223,101 @@ describe('Le flux accepte l’agent en paramètre d’adresse, et seulement lui'
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// L'exception des publications, éprouvée **sur le flux réel**.
+//
+// Décision du chef de projet du 27 novembre 2026 : les événements de l'objet
+// `reemploi` atteignent toute session positionnée, comme la politique de
+// lecture de `offre_reemploi`. Une offre qu'on ne découvre qu'en rechargeant
+// une liste n'est pas publiée, elle est entreposée.
+//
+// Les essais de `flux.test.js` jugent les fonctions ; celui-ci juge la
+// connexion, en lisant ce qui sort vraiment du tuyau.
+
+describe('Le flux diffuse les offres de réemploi hors du périmètre, et elles seules', () => {
+  it('une offre d’une autre structure arrive ; un dossier de réforme, non', async () => {
+    const lecture = ouvrirFlux(
+      `${base}/api/flux?agent=${agentLocal.id}`,
+      { suffit: (t) => t.includes('OR-ESSAI-PUBLIE'), delai: 4000 },
+    );
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Le dossier de réforme d'une autre structure : son instruction interne.
+    publier({
+      type: 'saisine',
+      objet: 'reforme',
+      id: 'dr-essai-flux',
+      structure_id: structureAutre.id,
+      donnees: { numero: 'DR-ESSAI-CLOISONNE', statut: 'saisi' },
+    });
+    // L'offre de la même structure : une publication. Sa charge mêle
+    // volontairement ce qu'elle publie et ce qu'elle ne publie pas.
+    publier({
+      type: 'offre_ouverte',
+      objet: 'reemploi',
+      id: 'or-essai-flux',
+      structure_id: structureAutre.id,
+      donnees: {
+        numero: 'OR-ESSAI-PUBLIE',
+        bien_designation: 'BIEN-PUBLIE',
+        structure_origine_code: structureAutre.code,
+        dossier: 'FUITE-DOSSIER',
+        structure_demandeuse: 'FUITE-DEMANDEUSE',
+        structure_beneficiaire: 'FUITE-BENEFICIAIRE',
+        detenteur_id: 'FUITE-DETENTEUR',
+        acte: 'FUITE-ACTE',
+      },
+    });
+
+    const { texte } = await lecture;
+    assert.match(
+      texte, /OR-ESSAI-PUBLIE/,
+      "l'offre d'une autre structure doit atteindre ce flux : c'est l'objet économique du lot",
+    );
+    assert.match(texte, /BIEN-PUBLIE/, 'avec la copie publiée du bien');
+    assert.match(texte, /event: reemploi/);
+
+    // LA MOITIÉ QUI COMPTE. Si celle-ci tombe, l'exception a débordé et
+    // l'instruction interne d'une structure s'est mise à fuir.
+    assert.doesNotMatch(
+      texte, /DR-ESSAI-CLOISONNE/,
+      "le dossier de réforme d'une autre structure ne doit jamais partir : l'exception est bornée à l'objet reemploi",
+    );
+    // Et rien de ce que l'offre ne publie pas ne sort avec elle.
+    assert.doesNotMatch(
+      texte, /FUITE-/,
+      "la charge d'une offre diffusée hors périmètre se réduit à ce que l'offre publie",
+    );
+  });
+
+  it('mais la structure d’origine, elle, lit la charge entière', async () => {
+    // La réduction ne vise que les lecteurs hors périmètre : chez elle, celle
+    // qui instruit doit voir à qui le bien a été attribué.
+    const lecture = ouvrirFlux(
+      `${base}/api/flux?agent=${agentLocal.id}`,
+      { suffit: (t) => t.includes('OR-ESSAI-CHEZ-MOI'), delai: 4000 },
+    );
+    await new Promise((r) => setTimeout(r, 300));
+
+    publier({
+      type: 'reemploi_prononce',
+      objet: 'reemploi',
+      id: 'or-essai-chez-moi',
+      structure_id: agentLocal.structure_id,
+      donnees: {
+        numero: 'OR-ESSAI-CHEZ-MOI',
+        structure_beneficiaire: 'BENEFICIAIRE-ATTENDU',
+        acte: 'ACTE-ATTENDU',
+      },
+    });
+
+    const { texte } = await lecture;
+    assert.match(texte, /OR-ESSAI-CHEZ-MOI/);
+    assert.match(
+      texte, /BENEFICIAIRE-ATTENDU/,
+      'dans son propre périmètre, rien n’est retiré de la charge',
+    );
+    assert.match(texte, /ACTE-ATTENDU/);
+  });
+});

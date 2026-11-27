@@ -5,16 +5,23 @@
 // `{ type, objet, id, structure_id, horodatage }`, et la quantité nouvelle pour
 // le stock.
 //
-// Trois points tenus ici :
+// Quatre points tenus ici :
 //   — le filtrage par structure vaut aussi pour le flux (RG-017). Le RLS ne
 //     protège pas un flux : c'est cette route qui écarte ce qui n'est pas du
 //     périmètre de l'agent ;
+//   — **une exception, et une seule** : les événements de l'objet `reemploi`
+//     atteignent toute session positionnée, parce que `offre_reemploi` est une
+//     publication et que son flux doit suivre sa politique de lecture. Hors du
+//     périmètre d'origine, leur charge est réduite à ce que l'offre publie —
+//     `chargePubliee`. Tout le reste, `reforme` compris, reste cloisonné ;
 //   — la reconnexion : chaque événement porte un `id` de séquence, et un client
 //     qui revient avec `Last-Event-ID` rattrape ce qu'il a manqué ;
 //   — un battement de cœur régulier, pour que ni le navigateur ni un
 //     intermédiaire ne ferme une connexion silencieuse.
 
-import { bus, depuis, dansPerimetre } from './_flux.js';
+import {
+  bus, depuis, chargePubliee, dansPerimetreOrdinaire, estPublie,
+} from './_flux.js';
 import { exigerAgent, structuresDe } from './_droits.js';
 import { porteeTotale } from '../regles/roles.js';
 
@@ -48,8 +55,15 @@ export default async function routesFlux(app) {
     })}\n\n`);
 
     const envoyer = (evenement) => {
-      if (!dansPerimetre(evenement, permises)) return;
-      ecrire(`id: ${evenement.sequence}\nevent: ${evenement.objet}\ndata: ${JSON.stringify(evenement)}\n\n`);
+      // Le périmètre ordinaire d'abord : s'il couvre l'événement, l'agent le
+      // reçoit entier, comme avant.
+      const ordinaire = dansPerimetreOrdinaire(evenement, permises);
+      if (!ordinaire && !estPublie(evenement)) return;
+      // Hors périmètre, seules les publications passent, et seulement avec ce
+      // que l'offre publie. Un identifiant de détenteur, le numéro du dossier
+      // de réforme ou le nom de la structure demandeuse ne sortent pas d'ici.
+      const sortant = ordinaire ? evenement : chargePubliee(evenement);
+      ecrire(`id: ${sortant.sequence}\nevent: ${sortant.objet}\ndata: ${JSON.stringify(sortant)}\n\n`);
     };
 
     // La reprise : ce qui a été manqué pendant la coupure.

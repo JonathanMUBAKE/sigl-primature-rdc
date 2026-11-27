@@ -5,7 +5,9 @@
 // d'entrée), RG-015 (un bien ne disparaît jamais), RG-016 (le SIGL instruit la
 // réforme, il ne la prononce pas), RG-018 (une autonome n'est pas écrite par le
 // central), RG-020 (journal avant confirmation), RG-021 (le lot n'est pas
-// immatriculé).
+// immatriculé), **RG-033 (l'état `reforme` ne s'atteint plus par un mouvement
+// direct : le circuit de réforme est seul à y mener — voir
+// `server/src/routes/reforme.js`)**.
 
 import { enEcriture, enLecture, lireTous, lireUn } from './_sql.js';
 import { ecriture, lecture, structuresDe, verifierEcritureStructure, verifierLecture } from './_droits.js';
@@ -23,6 +25,7 @@ import { rg014, baseEvaluationAttendue } from '../regles/rg-014.js';
 import { rg015 } from '../regles/rg-015.js';
 import { rg016 } from '../regles/rg-016.js';
 import { rg021, suiviAttendu } from '../regles/rg-021.js';
+import { rg033 } from '../regles/rg-033.js';
 
 const ETATS = ['neuf', 'bon', 'a_reparer', 'hors_service', 'en_maintenance', 'reforme', 'perdu'];
 const TYPES_MOUVEMENT = [
@@ -31,6 +34,11 @@ const TYPES_MOUVEMENT = [
 ];
 
 // L'état où un mouvement porte le bien. RG-015 : il reste au registre.
+// La ligne `reforme` reste dans la table parce qu'elle dit la vérité de la
+// machine à états — c'est bien `reforme` que ce mouvement vise —, mais elle
+// n'est plus atteignable d'ici : RG-033 refuse le type en tête de route, et
+// c'est le circuit de réforme qui porte le bien dans cet état, au moment où la
+// décision des domaines est enregistrée.
 const ETAT_APRES = {
   maintenance: 'en_maintenance',
   retour_maintenance: 'bon',
@@ -300,6 +308,13 @@ export default async function routesBiens(app) {
     const { type } = request.body;
     // RG-016 : le SIGL instruit la réforme et produit le PV, il ne la prononce pas.
     appliquer(rg016({ action: request.body.action ?? `mouvement_${type}` }));
+    // RG-033 : l'état `reforme` ne s'atteint plus par ici. Le type reste dans
+    // l'énumération du schéma **exprès** — s'il en sortait, la demande serait
+    // refusée par la validation de forme sous le code `donnees_invalides`,
+    // alors que c'est une règle de gestion qui parle, et qu'elle doit nommer la
+    // route du circuit. Le refus arrive avant toute lecture et toute écriture :
+    // rien n'est touché.
+    appliquer(rg033({ type_mouvement: type }));
 
     const bien = await lireUn(request, 
       `select b.*, s.code as structure_code, s.regime as structure_regime
@@ -316,10 +331,10 @@ export default async function routesBiens(app) {
         'quantite',
       );
     }
-    if ((type === 'perte' || type === 'reforme') && !(request.body.motif ?? '').trim()) {
+    // La réforme ne passe plus par ici (RG-033) : il ne reste que la perte.
+    if (type === 'perte' && !(request.body.motif ?? '').trim()) {
       throw donneesInvalides(
-        `Écrivez le motif de la ${type === 'perte' ? 'perte' : 'réforme'} : il figure au procès-verbal.`,
-        'motif',
+        'Écrivez le motif de la perte : il figure au procès-verbal.', 'motif',
       );
     }
 
@@ -342,10 +357,12 @@ export default async function routesBiens(app) {
         apres: { etat: etatCible, type_mouvement: type, quantite, motif: request.body.motif ?? null },
       });
 
-      // Le PV accompagne la perte et la réforme : la pièce est figée (RG-019).
+      // Le PV accompagne la perte : la pièce est figée (RG-019). Le PV de
+      // réforme, lui, est émis par la saisine des domaines, au bout du circuit
+      // — `POST /api/dossiers-reforme/:id/saisir` (RG-033).
       let document = null;
-      if (type === 'perte' || type === 'reforme') {
-        const typeDocument = type === 'perte' ? 'pv_perte' : 'pv_reforme';
+      if (type === 'perte') {
+        const typeDocument = 'pv_perte';
         const numero = await prochainNumero(typeDocument);
         document = await lireUn(request, 
           `insert into document (type, numero, structure_id, objet_type, objet_id, contenu, fige)

@@ -447,3 +447,39 @@ PV de réforme figé en tient lieu en attendant.
 `GET /api/dossiers-reforme/:id` rend les sept étapes du lot, chacune avec son état. Si l'écran
 recalculait l'avancement, il en détiendrait l'autorité et les deux jugements finiraient par diverger
 — c'est la règle déjà posée pour les chiffres, appliquée ici à un état de circuit.
+
+### Ce que la vérification au navigateur a rattrapé
+
+Le contrat gelé a tenu : les deux moitiés se sont accordées sans que j'aie à arbitrer un seul nom de
+champ. Les défauts trouvés à l'écran n'étaient donc pas des désaccords de contrat, mais des choses
+qu'aucun essai ne voit.
+
+1. **Le chiffre des biens offerts s'affichait deux fois** sur le poste de commande, et c'était de mon
+   fait. J'avais demandé au serveur de le servir alors qu'il le servait déjà — mon contrôle cherchait
+   la mauvaise clé —, et l'écran portait en plus celui que l'interface avait écrit à la main faute de
+   l'avoir. J'ai retiré le mien : les chiffres de tête viennent du serveur, et un chiffre servi deux
+   fois est un chiffre de trop.
+2. **Le catalogue proposait « Demander » à qui avait déjà demandé.** Le serveur disait pourtant la
+   vérité dans `ma_demande_statut` et `est_la_mienne` ; l'écran ne les lisait pas. Le geste était donc
+   offert puis refusé dans la seconde. Corrigé : la ligne montre l'état de ma demande, ou dit que
+   l'offre vient de ma propre structure.
+3. **Une date en anglais brut** — « jusqu'au Wed Dec 16 » — s'était glissée dans deux verdicts du
+   serveur. L'écran affiche les motifs tels quels, comme le contrat l'exige ; c'est donc au serveur de
+   les rendre en français. Ces phrases sont lues par un comptable des matières.
+4. **Les motifs du jeu de démonstration ne correspondaient pas aux biens** : un ordinateur portable
+   réformé pour « climatiseur noyé », une imprimante pour « véhicule accidenté ». Tirés d'une liste
+   indépendante de celle des biens. Ce n'est pas un défaut de code, mais c'est la première chose qu'un
+   testeur voit, et elle fait cesser de croire les données.
+
+**Preuve du lot, faite de bout en bout à l'écran** : la coordonnatrice de la CAID a déposé une demande
+de réemploi sur un véhicule offert par la CGIG, et la demande est en base. Une structure voit l'offre
+d'une autre et la demande : c'est tout l'objet économique du lot, et il fonctionne.
+
+### Un piège de démonstration, hors du lot, à régler un jour
+
+Le sélecteur de profil est borné au périmètre de l'agent courant. Un testeur qui prend le chef d'une
+cellule s'y retrouve **enfermé** : la liste ne montre plus que sa cellule, et il ne peut en sortir
+qu'en collant un identifiant technique dans le champ de secours — lequel, une fois employé, affiche
+« Agent b0639bad » au lieu du nom. Ce n'est pas un défaut de ce lot, et je ne l'ai pas élargi pour le
+corriger : décider qui a le droit de lister les agents est une question de droits, pas une couture.
+Mais c'est exactement ce sur quoi une démonstration devant la Primature trébuchera.

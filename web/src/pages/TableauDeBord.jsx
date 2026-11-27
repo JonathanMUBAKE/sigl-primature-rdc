@@ -35,8 +35,19 @@ export default function TableauDeBord() {
   ])
   const { marquer, estMarque } = useMarquage()
   useRafraichissementVivant(
-    ['tableau-de-bord', 'besoins', 'patrimoine', 'stocks', 'alertes', 'achats'],
-    recharger,
+    [
+      'tableau-de-bord',
+      'besoins',
+      'patrimoine',
+      'stocks',
+      'alertes',
+      'achats',
+      'reforme',
+      'reemploi',
+    ],
+    () => {
+      recharger()
+    },
     marquer,
   )
 

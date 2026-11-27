@@ -41,6 +41,10 @@ const TABLES_A_VIDER = [
   // Le lot « inventaire » se vide avant le patrimoine qu'il constate.
   'ecart_inventaire', 'constat_inventaire', 'campagne_agent', 'campagne_inventaire',
   'rapprochement_partie', 'rapprochement_poste', 'rapprochement',
+  // Le lot « réforme » se vide avant le patrimoine qu'il instruit et avant les
+  // documents qu'il référence.
+  'demande_reemploi', 'offre_reemploi', 'avis_commission', 'membre_commission',
+  'dossier_reforme',
   'mouvement', 'stock', 'bien',
   'ligne_besoin', 'bon_commande', 'dossier_achat', 'etat_besoin',
   'document', 'alerte', 'fournisseur',
@@ -86,6 +90,7 @@ async function principal() {
       const alertes = await creerAlertes(bd, structures, agents, biens, fournisseurs, stocks);
       const inventaires = await creerInventaires(bd, structures, sites, agents);
       const rapprochements = await creerRapprochements(bd, structures, agents);
+      const reformes = await creerReformes(bd, structures, sites, agents);
       const entrees = await creerJournal(bd, agents, biens, besoins, stocks);
 
       return {
@@ -96,13 +101,13 @@ async function principal() {
         categorie: CATEGORIES.length,
         parametre: parametres,
         bien: biens.length,
-        mouvement: mouvements + inventaires.mouvements,
+        mouvement: mouvements + inventaires.mouvements + reformes.mouvements,
         stock: stocks.length,
         fournisseur: fournisseurs.length,
         etat_besoin: besoins.length,
         dossier_achat: achats.dossiers.length,
         bon_commande: achats.bons.length,
-        document: documents + inventaires.documents,
+        document: documents + inventaires.documents + reformes.documents,
         alerte: alertes,
         campagne_inventaire: inventaires.campagnes,
         campagne_agent: inventaires.agents,
@@ -111,6 +116,11 @@ async function principal() {
         rapprochement: rapprochements.rapprochements,
         rapprochement_poste: rapprochements.postes,
         rapprochement_partie: rapprochements.parties,
+        dossier_reforme: reformes.dossiers,
+        membre_commission: reformes.membres,
+        avis_commission: reformes.avis,
+        offre_reemploi: reformes.offres,
+        demande_reemploi: reformes.demandes,
         journal: entrees,
       };
     });
@@ -277,6 +287,14 @@ async function creerParametres(bd, agents) {
       'Fenêtre d’observation du découpage d’un achat sous un seuil (RG-008).'],
     ['amortissement', { methode: 'lineaire', prorata_temporis: true },
       'Méthode d’amortissement des immobilisations.'],
+    // Lot « réforme ». Ni le quorum de la commission ni la durée de l'offre ne
+    // sont arrêtés par l'institution (`docs/LOT-REFORME.md`, « Ce qui reste à
+    // trancher ») : ce sont des paramètres, et les routes refusent d'agir si on
+    // les retire plutôt que de deviner une valeur à sa place.
+    ['reforme.commission_membres_minimum', 3,
+      'Nombre minimal de membres de la commission de réforme, et nombre minimal d’avis pour qu’elle ait conclu.'],
+    ['reemploi.duree_offre_jours', 30,
+      'Durée d’ouverture d’une offre de réemploi, en jours.'],
   ];
 
   for (const [cle, valeur, libelle] of parametres) {
@@ -1563,6 +1581,945 @@ async function creerRapprochements(bd, structures, agents) {
  * structure de l'article** quand il en existe un : le journal est une preuve,
  * et une sortie signée par quelqu'un d'une autre structure n'en serait pas une.
  */
+// ---------------------------------------------------------------------------
+// Le circuit de réforme et l'offre de réemploi — lot « réforme ».
+//
+// CE QUE CE JEU DOIT MONTRER, ET POURQUOI IL EST FAIT AINSI.
+//
+// Un dossier à chaque stade, pour que l'écran de la réforme ne soit jamais vide
+// et que les sept étapes se voient toutes au moins une fois. Et surtout : **au
+// moins trois offres ouvertes, venant de trois structures différentes** — la
+// CGIG, le Secrétariat général à la Primature et le Secrétariat général du
+// Gouvernement. L'écran du réemploi n'a d'intérêt que si un chef de structure y
+// trouve des biens offerts *par les autres* ; avec une seule offre, le profil de
+// démonstration qui se trouverait être celui de la structure d'origine verrait
+// une page vide et le lot paraîtrait manqué.
+//
+// La commission mêle des agents de la structure et l'intendante générale du
+// SGP : avec un quorum de trois membres, les petites cellules ne peuvent pas le
+// réunir autrement, et `membre_commission` l'autorise exprès (voir la migration
+// 20261127080000). RG-030 est tenue partout : le proposant ne siège jamais.
+//
+// TOUT EST FICTIF. Aucune donnée réelle de la Primature.
+// ---------------------------------------------------------------------------
+
+// --- Les motifs et les avis, accordés au bien -------------------------------
+//
+// POURQUOI CE TABLEAU EXISTE. Les premiers motifs de ce jeu étaient tirés d'une
+// liste indépendante de celle des biens, et cela donnait « Climatiseur noyé
+// lors des pluies de novembre » sur un ordinateur portable, ou « Mobilier
+// démodé mais solide » dans l'avis d'une commission réunie sur un véhicule
+// tout-terrain. Ce n'est pas un défaut de code, et c'est pourtant ce qu'un
+// testeur voit en premier : il cesse alors de croire les données, et tout
+// l'écran perd son crédit. Le motif se choisit donc d'après `categorie_code`,
+// et les avis avec lui.
+//
+// Trois tons, parce que le circuit a trois issues à montrer :
+//   `irreparable` le bien est hors d'usage — le dossier ira jusqu'aux domaines ;
+//   `remplace`    il sert encore, mais plus ici — c'est celui qu'on offre ;
+//   `commodite`   il gêne sans être hors d'usage — la commission refuse.
+//
+// Chaque ton porte trois avis, dans l'ordre où la commission les rend, et une
+// `reserve` : l'avis défavorable du membre qui n'a pas suivi la majorité. Une
+// délibération unanime sur chaque dossier ne ressemblerait pas à une
+// commission.
+
+/** La famille d'un bien, d'après son code de catégorie. */
+function familleDuBien(codeCategorie) {
+  const code = String(codeCategorie ?? '');
+  if (code.startsWith('CHA')) return 'charroi';
+  // Les deux sous-familles qui ne parlent pas comme leur parent.
+  if (code.startsWith('INF-IMP')) return 'imprimerie';
+  if (code.startsWith('INF')) return 'informatique';
+  if (code.startsWith('MOB-CLI')) return 'climatisation';
+  if (code.startsWith('MOB')) return 'mobilier';
+  if (code.startsWith('TEC')) return 'technique';
+  return 'divers';
+}
+
+const DISCOURS = {
+  charroi: {
+    irreparable: {
+      motif: "Châssis déformé après un accident ; l'expertise de l'atelier est défavorable à la remise en circulation.",
+      avis: [
+        "Véhicule examiné à l'atelier : le châssis est déformé et la géométrie ne se reprend pas.",
+        'La remise en circulation serait dangereuse pour le conducteur comme pour les passagers.',
+        "Avis favorable à la réforme, sous réserve que le véhicule soit d'abord offert aux autres structures.",
+      ],
+      reserve: 'Avis défavorable : une seconde expertise serait prudente avant de sortir ce véhicule du parc.',
+    },
+    remplace: {
+      motif: 'Véhicule remplacé par un modèle de la dotation nouvelle ; celui-ci roule encore et son entretien est à jour.',
+      avis: [
+        'Véhicule en état de marche, entretien suivi au carnet.',
+        'Il ne correspond plus aux missions du service, mais il peut servir ailleurs.',
+        "Avis favorable, à condition de l'offrir au réemploi avant toute saisine.",
+      ],
+      reserve: 'Avis défavorable : le parc du service est déjà juste, ce véhicule pourrait y rester une saison de plus.',
+    },
+    commodite: {
+      motif: 'Véhicule encombrant au parking et peu utilisé ; proposé à la réforme pour libérer une place.',
+      avis: [
+        "Le véhicule roule et passe le contrôle technique : l'encombrement n'est pas un motif de réforme.",
+        'Aucun remplacement n’est prévu au charroi ; le réformer créerait un manque.',
+        'Avis favorable par commodité de stationnement, ce qui ne suffit pas à fonder une réforme.',
+      ],
+      reserve: 'Avis défavorable : le véhicule est en état de rouler.',
+    },
+  },
+  informatique: {
+    irreparable: {
+      motif: "Carte mère hors d'usage après une surtension ; le réparateur annonce quatre mois de délai sur les pièces.",
+      avis: [
+        "Appareil ouvert et testé : l'alimentation et la carte mère sont touchées.",
+        "Le coût de la réparation dépasse celui d'un appareil neuf de même capacité.",
+        "Avis favorable à la réforme, le matériel ayant dépassé sa durée d'amortissement.",
+      ],
+      reserve: 'Avis défavorable : le disque pourrait être récupéré et remonté sur un autre poste.',
+    },
+    remplace: {
+      motif: "Poste remplacé lors du renouvellement du parc ; il fonctionne et sa mémoire a été augmentée l'an dernier.",
+      avis: [
+        'Appareil fonctionnel : démarrage, écran et périphériques vérifiés.',
+        "Il est en deçà des besoins de ce service, pas de ceux d'un poste de saisie.",
+        'Avis favorable, à offrir au réemploi : plusieurs cellules travaillent sur du matériel plus ancien.',
+      ],
+      reserve: 'Avis défavorable : cet appareil peut encore tenir le rôle de poste de secours ici.',
+    },
+    commodite: {
+      motif: 'Appareil lent et bruyant ; proposé à la réforme pour dégager le bureau.',
+      avis: [
+        'La lenteur vient du disque, qui se remplace pour une somme modique.',
+        "L'appareil fonctionne et aucun remplacement n'est budgété.",
+        'Avis favorable pour le confort du poste, ce qui n’est pas un motif de réforme.',
+      ],
+      reserve: 'Avis défavorable : le matériel est réparable à peu de frais.',
+    },
+  },
+  imprimerie: {
+    irreparable: {
+      motif: "Bloc d'impression hors service ; les consommables du modèle ne sont plus distribués sur le marché local.",
+      avis: [
+        "Mécanisme d'entraînement cassé, pièces introuvables chez le fournisseur.",
+        'Appareil immobilisé depuis six mois ; les tirages sont faits dans un autre service.',
+        'Avis favorable à la réforme.',
+      ],
+      reserve: 'Avis défavorable : un atelier spécialisé pourrait encore tenter la réparation.',
+    },
+    remplace: {
+      motif: "Photocopieur de forte capacité remplacé par un contrat de location ; l'appareil fonctionne et son compteur est bas.",
+      avis: [
+        'Appareil en service jusqu’au changement de contrat, sans panne signalée.',
+        'Son volume dépasse nos besoins ; il reste utile à un service plus sollicité.',
+        "Avis favorable, à condition de l'offrir au réemploi.",
+      ],
+      reserve: "Avis défavorable : le contrat de location n'est pas encore signé, et cet appareil assure l'intérim.",
+    },
+    commodite: {
+      motif: 'Imprimante encombrante dans un bureau partagé ; proposée à la réforme faute de place.',
+      avis: [
+        "L'appareil imprime et ses consommables sont en stock.",
+        'Le manque de place se règle par un déplacement, pas par une réforme.',
+        'Avis favorable pour l’aménagement du bureau, ce qui ne fonde pas une réforme.',
+      ],
+      reserve: 'Avis défavorable : l’appareil est en état de marche.',
+    },
+  },
+  mobilier: {
+    irreparable: {
+      motif: "Piétement rompu et plateau fendu après un dégât d'eau ; l'ensemble ne se répare pas.",
+      avis: [
+        'Bois gonflé et délité : le plateau ne tient plus la charge.',
+        'Une réparation coûterait davantage que le remplacement du meuble.',
+        'Avis favorable à la réforme.',
+      ],
+      reserve: 'Avis défavorable : la quincaillerie mériterait d’être récupérée avant la sortie.',
+    },
+    remplace: {
+      motif: 'Mobilier déclassé lors du réaménagement du troisième niveau ; en état correct, sans dégradation structurelle.',
+      avis: [
+        'Mobilier démodé mais solide, sans dégradation structurelle.',
+        "Le réaménagement l'a rendu inutile ici, pas inutilisable.",
+        'À offrir avant toute saisine : plusieurs cellules en manquent.',
+      ],
+      reserve: "Avis défavorable : le réaménagement n'est pas terminé, et ce mobilier sert encore aux agents déplacés.",
+    },
+    commodite: {
+      motif: "Mobilier démodé ; proposé à la réforme pour harmoniser l'ameublement du service.",
+      avis: [
+        'Le meuble est en état et ne gêne aucun usage.',
+        "L'harmonisation de l'ameublement n'est pas un motif de sortie du patrimoine.",
+        'Avis favorable par souci de cohérence visuelle, ce qui ne suffit pas.',
+      ],
+      reserve: 'Avis défavorable : le mobilier est utilisable tel quel.',
+    },
+  },
+  climatisation: {
+    irreparable: {
+      motif: 'Circuit électrique entièrement corrodé après les pluies ; aucun réparateur ne garantit le résultat.',
+      avis: [
+        'Corrosion généralisée du tableau de commande et du compresseur.',
+        "Appareil irrécupérable : l'eau a séjourné plusieurs jours dans le caisson.",
+        'Avis favorable à la réforme.',
+      ],
+      reserve: 'Avis défavorable : le caisson extérieur pourrait être conservé en pièce de rechange.',
+    },
+    remplace: {
+      motif: 'Climatiseur remplacé par un appareil de plus forte puissance ; celui-ci refroidit encore correctement.',
+      avis: [
+        'Appareil testé : il refroidit et le compresseur est silencieux.',
+        'Sa puissance ne couvre plus le volume de la salle, mais conviendrait à un bureau.',
+        'Avis favorable, à offrir au réemploi en priorité.',
+      ],
+      reserve: 'Avis défavorable : il peut rester en appoint dans la salle voisine.',
+    },
+    commodite: {
+      motif: 'Appareil bruyant ; proposé à la réforme pour le confort du bureau.',
+      avis: [
+        'Le bruit vient du ventilateur, qui se remplace pour une somme modique.',
+        "L'appareil refroidit et aucun remplacement n'est budgété.",
+        'Avis favorable pour le confort acoustique, ce qui ne fonde pas une réforme.',
+      ],
+      reserve: 'Avis défavorable : l’appareil fonctionne.',
+    },
+  },
+  technique: {
+    irreparable: {
+      motif: "Matériel noyé lors des pluies ; alternateur et tableau de commande hors d'usage.",
+      avis: [
+        'Alternateur grillé et tableau de commande corrodé.',
+        'La remise en service demanderait de tout remplacer sauf le châssis.',
+        'Avis favorable à la réforme.',
+      ],
+      reserve: 'Avis défavorable : le châssis et le réservoir sont intacts et pourraient servir.',
+    },
+    remplace: {
+      motif: 'Matériel de secours remplacé par un modèle de plus forte puissance ; celui-ci démarre et tient la charge.',
+      avis: [
+        'Essai de charge concluant : le matériel démarre et tient deux heures.',
+        'Il ne couvre plus les besoins du site, mais conviendrait à une installation plus modeste.',
+        'Matériel entretenu, à proposer en priorité aux autres structures.',
+      ],
+      reserve: 'Avis défavorable : il pourrait rester en second secours sur ce site.',
+    },
+    commodite: {
+      motif: 'Matériel peu utilisé et encombrant dans le local technique ; proposé à la réforme.',
+      avis: [
+        'Le matériel est en état et a été entretenu cette année.',
+        "L'encombrement du local ne justifie pas une sortie du patrimoine.",
+        'Avis favorable pour dégager le local, ce qui n’est pas un motif de réforme.',
+      ],
+      reserve: 'Avis défavorable : le matériel sert encore ponctuellement.',
+    },
+  },
+  divers: {
+    irreparable: {
+      motif: 'Matériel en panne répétée ; trois interventions en six mois sans résultat durable.',
+      avis: [
+        'Pannes répétées malgré trois interventions de l’atelier.',
+        'Le coût cumulé des réparations dépasse la valeur résiduelle du bien.',
+        'Avis favorable à la réforme.',
+      ],
+      reserve: 'Avis défavorable : une dernière intervention mériterait d’être tentée.',
+    },
+    remplace: {
+      motif: 'Matériel devenu inutile au service après réorganisation ; il est en état de fonctionner.',
+      avis: [
+        'Matériel vérifié : il fonctionne et son entretien est à jour.',
+        'La réorganisation l’a rendu inutile ici, pas inutilisable.',
+        'Avis favorable, à offrir au réemploi avant toute saisine.',
+      ],
+      reserve: 'Avis défavorable : le service pourrait encore en avoir besoin.',
+    },
+    commodite: {
+      motif: 'Matériel encombrant mais en état ; proposé à la réforme pour libérer de la place.',
+      avis: [
+        'Le bien est en état et ne présente aucune avarie.',
+        'Le manque de place ne justifie pas une sortie du patrimoine.',
+        'Avis favorable par commodité de rangement, ce qui n’est pas un motif de réforme.',
+      ],
+      reserve: 'Avis défavorable : le bien est utilisable.',
+    },
+  },
+};
+
+/** Le motif et les avis qui conviennent à ce bien, pour ce ton. */
+function discours(bien, ton) {
+  return DISCOURS[familleDuBien(bien?.categorie_code)][ton];
+}
+
+/** Les trois avis d'une délibération, dont le dernier peut être une réserve. */
+function avisDe(bien, ton, { avecReserve = false } = {}) {
+  const d = discours(bien, ton);
+  return avecReserve ? [d.avis[0], d.avis[1], d.reserve] : d.avis;
+}
+
+// Ce qu'une structure écrit quand elle demande le bien au réemploi. Deux
+// formulations par famille, pour que deux demandeuses sur la même offre ne
+// disent pas la même phrase.
+const BESOINS = {
+  charroi: [
+    'Notre service partage un seul véhicule pour trois missions de terrain par semaine.',
+    'Aucun véhicule affecté à la cellule : les déplacements se font par taxi.',
+  ],
+  informatique: [
+    'Deux agents se relaient sur le même poste depuis la rentrée.',
+    'Trois postes à équiper avant l’arrivée des nouveaux chargés de suivi.',
+  ],
+  imprimerie: [
+    'Aucune imprimante de service à la cellule ; les tirages sont faits au Secrétariat général.',
+    'Notre appareil est en panne depuis deux mois et les dossiers partent en retard.',
+  ],
+  mobilier: [
+    'Les agents travaillent sur des tables d’appoint depuis l’ouverture des bureaux.',
+    'Deux postes de travail à meubler dans le bureau du fond.',
+  ],
+  climatisation: [
+    'La salle de réunion n’a aucune climatisation et devient inutilisable l’après-midi.',
+    'Notre appareil ne refroidit plus la salle des archives, où l’humidité abîme les dossiers.',
+  ],
+  technique: [
+    'Notre aile n’a aucun secours électrique ; ce matériel conviendrait à la salle des serveurs.',
+    'Les coupures interrompent les traitements de données chaque semaine.',
+  ],
+  divers: [
+    'Besoin établi et inscrit à notre état de besoin du trimestre, resté sans réponse.',
+    'Ce matériel comblerait un manque que nous signalons depuis deux exercices.',
+  ],
+};
+
+/** Le motif d'une demande de réemploi, accordé au bien offert. */
+function besoinDe(bien, rang = 0) {
+  const liste = BESOINS[familleDuBien(bien?.categorie_code)];
+  return liste[rang % liste.length];
+}
+
+async function creerReformes(bd, structures, sites, agents) {
+  const comptes = {
+    dossiers: 0, membres: 0, avis: 0, offres: 0, demandes: 0, mouvements: 0, documents: 0,
+  };
+  const pris = new Set();
+
+  const nomSite = (id) => sites.find((s) => String(s.id) === String(id))?.nom ?? null;
+  const intendante = agentDe(agents, 'SGP', 'intendant');
+  const logistique = agents.find((a) => a.roles.includes('logistique'));
+
+  /**
+   * Un bien encore libre de la structure, dans l'un des états demandés.
+   *
+   * Le repli sur les états « en service » n'est pas une facilité : les petites
+   * cellules du jeu de démonstration n'ont parfois aucun matériel hors service,
+   * et un dossier manquant ferait croire à l'écran qu'une étape du circuit n'a
+   * pas été écrite. On ne touche jamais aux biens déjà réformés ou perdus : eux
+   * sont sortis du service, et un dossier posé dessus serait faux.
+   */
+  const choisirBien = async (structure, etats, famille = null) => {
+    const lignes = await bd.tous(
+      `select b.id, b.immatriculation, b.designation, b.categorie_code, b.etat, b.quantite,
+              b.structure_id, b.site_id, b.detenteur_id, b.valeur_acquisition, b.date_acquisition
+         from bien b
+        where b.structure_id = $1 and b.suivi = 'individuel'
+          and b.etat not in ('reforme', 'perdu')
+        order by (b.etat = any($2)) desc, b.immatriculation`,
+      [structure.id, etats],
+    );
+    const libres = lignes.filter((b) => !pris.has(String(b.id)));
+    // La famille demandée d'abord. Sans cette préférence, le tri par
+    // immatriculation — qui commence par le code de catégorie — ramenait le
+    // charroi à chaque fois, et les dix dossiers de démonstration parlaient
+    // tous de véhicules. Un jeu monotone se remarque autant qu'un jeu faux.
+    const choisi = (famille ? libres.find((b) => familleDuBien(b.categorie_code) === famille) : null)
+      ?? libres[0]
+      ?? null;
+    if (choisi) pris.add(String(choisi.id));
+    return choisi;
+  };
+
+  const poserDossier = async (champs) => {
+    comptes.dossiers += 1;
+    return bd.un(
+      `insert into dossier_reforme (numero, bien_id, structure_id, propose_par,
+           motif_proposition, statut, avis_rendu_le, offert_le, reemploye_le, saisi_le,
+           pv_document_id, decision_autorite, decision_reference, decision_date,
+           decision_suite, close_le, cree_le, maj_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)
+       returning *`,
+      [
+        champs.numero, champs.bien_id, champs.structure_id, champs.propose_par,
+        champs.motif_proposition, champs.statut, champs.avis_rendu_le ?? null,
+        champs.offert_le ?? null, champs.reemploye_le ?? null, champs.saisi_le ?? null,
+        champs.pv_document_id ?? null, champs.decision_autorite ?? null,
+        champs.decision_reference ?? null, champs.decision_date ?? null,
+        champs.decision_suite ?? null, champs.close_le ?? null, champs.cree_le,
+      ],
+    );
+  };
+
+  /** Trois membres : deux de la structure, hors proposant, plus l'intendante. */
+  const commissionDe = (codeStructure, proposant) => {
+    const locaux = agents.filter(
+      (a) => a.codeStructure === codeStructure
+        && String(a.id) !== String(proposant.id)
+        && !a.roles.includes('controle_externe')
+        && !a.roles.includes('admin'),
+    );
+    const retenus = [...locaux.slice(0, 2)];
+    // Les renforts du niveau central. Une cellule d'un seul agent ne peut pas
+    // réunir trois membres sans eux, et `membre_commission` autorise exprès un
+    // membre d'une autre structure.
+    const renforts = [
+      intendante, logistique,
+      agentDe(agents, 'SGP', 'comptable_matieres'),
+      agentDe(agents, 'CAB', 'chef_structure'),
+    ];
+    for (const renfort of renforts) {
+      if (retenus.length >= 3) break;
+      if (renfort && !retenus.some((a) => String(a.id) === String(renfort.id))
+          && String(renfort.id) !== String(proposant.id)) {
+        retenus.push(renfort);
+      }
+    }
+    return retenus.slice(0, 3).map((agent, index) => ({
+      agent,
+      qualite: ['president', 'rapporteur', 'membre'][index] ?? 'membre',
+    }));
+  };
+
+  const poserCommission = async (dossier, composition, date) => {
+    for (const { agent, qualite } of composition) {
+      comptes.membres += 1;
+      await bd.requete(
+        `insert into membre_commission (dossier_id, structure_id, agent_id, qualite, designe_le)
+         values ($1, $2, $3, $4, $5)`,
+        [dossier.id, dossier.structure_id, agent.id, qualite, date],
+      );
+    }
+  };
+
+  const poserAvis = async (dossier, composition, sens, motifs, date) => {
+    for (const [index, { agent }] of composition.entries()) {
+      if (index >= sens.length) break;
+      comptes.avis += 1;
+      await bd.requete(
+        `insert into avis_commission (dossier_id, structure_id, agent_id, avis, motif, rendu_le)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [dossier.id, dossier.structure_id, agent.id, sens[index],
+          motifs[index] ?? motifs[motifs.length - 1], date],
+      );
+    }
+  };
+
+  const poserOffre = async (dossier, bien, structure, champs) => {
+    comptes.offres += 1;
+    return bd.un(
+      `insert into offre_reemploi (numero, dossier_id, structure_id, site_origine_id,
+           bien_immatriculation, bien_designation, bien_categorie_code, bien_etat,
+           structure_origine_code, structure_origine_nom, site_origine_nom,
+           ouverte_le, close_le, cloture_prevue_le, duree_jours, statut,
+           ouverte_par, close_par)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       returning *`,
+      [
+        champs.numero, dossier.id, structure.id, bien.site_id ?? null,
+        bien.immatriculation, bien.designation, bien.categorie_code, bien.etat,
+        structure.code, structure.nom, nomSite(bien.site_id),
+        champs.ouverte_le, champs.close_le ?? null, champs.cloture_prevue_le,
+        champs.duree_jours, champs.statut, logistique.id, champs.close_par ?? null,
+      ],
+    );
+  };
+
+  const poserDemande = async (offre, structureDemandeuse, champs) => {
+    comptes.demandes += 1;
+    return bd.un(
+      `insert into demande_reemploi (offre_id, structure_id, structure_demandeuse_id,
+           demande_par, motif, statut, motif_decision, tranchee_le, tranchee_par, cree_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+      [
+        offre.id, offre.structure_id, structureDemandeuse.id, champs.demande_par,
+        champs.motif, champs.statut, champs.motif_decision ?? null,
+        champs.tranchee_le ?? null, champs.tranchee_par ?? null, champs.cree_le,
+      ],
+    );
+  };
+
+  /** Le procès-verbal de réforme, figé (RG-019). */
+  const poserPv = async (dossier, bien, structure, { date, offre, composition, avis }) => {
+    comptes.documents += 1;
+    return bd.un(
+      `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
+           signataire_id, signe_le, fige, cree_le)
+       values ('pv_reforme', $1, $2, 'dossier_reforme', $3, $4, $5, $6, true, $6)
+       returning id, numero`,
+      [
+        await numeroDocument(bd, 'PVR', date), structure.id, String(dossier.id),
+        JSON.stringify({
+          dossier: dossier.numero,
+          immatriculation: bien.immatriculation,
+          designation: bien.designation,
+          etat: bien.etat,
+          valeur_acquisition: bien.valeur_acquisition,
+          date_acquisition: bien.date_acquisition,
+          structure: structure.nom,
+          site: nomSite(bien.site_id),
+          motif_proposition: dossier.motif_proposition,
+          commission: composition.map((m) => ({ qualite: m.qualite })),
+          avis,
+          offre_reemploi: offre ? { numero: offre.numero, close_le: offre.close_le } : null,
+          mention: "Le SIGL instruit et produit le procès-verbal ; la cession et la mise au rebut relèvent de l'administration en charge des domaines privés et publics de l'État (décret 13/050), qui décide seule de la suite.",
+        }),
+        logistique.id, date,
+      ],
+    );
+  };
+
+  const cgig = structures.parCode.get('CGIG');
+  const sgp = structures.parCode.get('SGP');
+  const sgg = structures.parCode.get('SGG');
+  const caid = structures.parCode.get('CAID');
+  const du = structures.parCode.get('DU');
+
+  const annee = (date) => new Date(date).getFullYear();
+  const ETATS_REFORMABLES = ['hors_service', 'a_reparer'];
+
+  // --- 1. Un dossier proposé, dont la commission n'a pas fini -------------
+  {
+    const structure = cgig;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'informatique');
+    const proposant = agentDe(agents, 'CGIG', 'magasinier');
+    const creeLe = dateEntre(12, 9);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      motif_proposition: discours(bien, 'irreparable').motif,
+      statut: 'propose',
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('CGIG', proposant);
+    await poserCommission(dossier, composition, dateEntre(8, 7).toISOString());
+    // Un seul avis sur trois : la commission n'a pas conclu, et l'écran doit
+    // afficher « 1 avis sur 3 » sans rien décider de lui-même.
+    await poserAvis(dossier, composition, ['favorable'],
+      avisDe(bien, 'irreparable').slice(0, 1),
+      dateEntre(6, 5).toISOString());
+  }
+
+  // --- 2. Un dossier rejeté : le bien reste en service --------------------
+  {
+    const structure = caid;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'mobilier');
+    const proposant = agentDe(agents, 'CAID', 'demandeur') ?? agentDe(agents, 'CAID', 'chef_structure');
+    const creeLe = dateEntre(70, 65);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      // Le ton « commodité » : le bien gêne sans être hors d'usage, et la
+      // commission le dit. Les deux premiers avis sont défavorables, le
+      // troisième favorable mais mal fondé — c'est la majorité qui tranche.
+      motif_proposition: discours(bien, 'commodite').motif,
+      statut: 'rejete',
+      avis_rendu_le: dateEntre(58, 56).toISOString(),
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('CAID', proposant);
+    await poserCommission(dossier, composition, dateEntre(63, 61).toISOString());
+    await poserAvis(dossier, composition,
+      ['defavorable', 'defavorable', 'favorable'],
+      avisDe(bien, 'commodite'),
+      dateEntre(59, 57).toISOString());
+  }
+
+  // --- 3. Un dossier examiné, qui attend son offre -----------------------
+  {
+    const structure = sgp;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'imprimerie');
+    const proposant = agentDe(agents, 'SGP', 'magasinier');
+    const creeLe = dateEntre(20, 18);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      motif_proposition: discours(bien, 'irreparable').motif,
+      statut: 'examine',
+      avis_rendu_le: dateEntre(14, 13).toISOString(),
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('SGP', proposant);
+    await poserCommission(dossier, composition, dateEntre(17, 16).toISOString());
+    await poserAvis(dossier, composition,
+      ['favorable', 'favorable', 'favorable'],
+      avisDe(bien, 'irreparable'),
+      dateEntre(15, 14).toISOString());
+  }
+
+  // --- 4 à 6. Trois offres ouvertes, de trois structures différentes -----
+  //
+  // C'est le cœur de la démonstration : un chef de structure, quel que soit son
+  // rattachement, doit voir au moins une offre venue d'ailleurs.
+  // Le motif, les avis et les demandes ne sont pas écrits ici : ils se
+  // déduisent de la catégorie du bien tiré pour chaque structure. C'est tout
+  // l'objet de `DISCOURS` — un motif de climatiseur sur un ordinateur portable
+  // décrédibilise l'écran entier.
+  const offresOuvertes = [
+    {
+      structure: cgig, code: 'CGIG', role: 'magasinier', famille: 'technique',
+      demandeuses: [{ structure: sgg, role: 'chef_structure' }],
+    },
+    {
+      structure: sgp, code: 'SGP', role: 'comptable_matieres', famille: 'mobilier',
+      demandeuses: [
+        { structure: caid, role: 'chef_structure' },
+        { structure: du, role: 'chef_structure' },
+      ],
+    },
+    {
+      structure: sgg, code: 'SGG', role: 'chef_structure', famille: 'imprimerie',
+      demandeuses: [],
+    },
+  ];
+
+  for (const cas of offresOuvertes) {
+    const bien = await choisirBien(cas.structure, ETATS_REFORMABLES, cas.famille);
+    if (!bien) continue;
+    const proposant = agentDe(agents, cas.code, cas.role) ?? agentDe(agents, cas.code);
+    const creeLe = dateEntre(26, 24);
+    const offertLe = dateEntre(11, 10);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: cas.structure.id,
+      propose_par: proposant.id,
+      // Le ton « remplacé » : le bien sert encore, mais plus ici. C'est celui
+      // qu'on offre, et le seul qui rende l'étape 3 vraisemblable.
+      motif_proposition: discours(bien, 'remplace').motif,
+      statut: 'offert',
+      avis_rendu_le: dateEntre(16, 15).toISOString(),
+      offert_le: offertLe.toISOString(),
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe(cas.code, proposant);
+    await poserCommission(dossier, composition, dateEntre(22, 20).toISOString());
+    await poserAvis(dossier, composition, ['favorable', 'favorable', 'favorable'],
+      avisDe(bien, 'remplace'), dateEntre(17, 16).toISOString());
+
+    // Trente jours à compter de l'ouverture : la durée vient du paramètre
+    // `reemploi.duree_offre_jours`, et le jeu de démonstration la reprend.
+    const cloture = new Date(offertLe.getTime() + 30 * 86_400_000);
+    const offre = await poserOffre(dossier, bien, cas.structure, {
+      numero: await numeroSerie(bd, 'OR', annee(offertLe)),
+      ouverte_le: offertLe.toISOString(),
+      cloture_prevue_le: cloture.toISOString(),
+      duree_jours: 30,
+      statut: 'ouverte',
+    });
+    for (const [rang, demandeuse] of cas.demandeuses.entries()) {
+      const demandeur = agentDe(agents, demandeuse.structure.code, demandeuse.role)
+        ?? agentDe(agents, demandeuse.structure.code);
+      await poserDemande(offre, demandeuse.structure, {
+        demande_par: demandeur.id,
+        // Le besoin aussi se dit dans les termes du bien offert : on ne demande
+        // pas une table d'appoint pour un groupe électrogène.
+        motif: besoinDe(bien, rang),
+        statut: 'deposee',
+        cree_le: dateEntre(8, 4).toISOString(),
+      });
+    }
+  }
+
+  // --- 7. Un dossier réemployé : le bien a changé de main ----------------
+  //
+  // L'issue que le lot cherche. Le dossier se clôt **sans réforme**, le bien
+  // reste au registre (RG-015) et passe à la structure qui l'a repris, avec son
+  // acte de transfert et son mouvement de type `reemploi`.
+  {
+    const structure = sgp;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'informatique');
+    const proposant = agentDe(agents, 'SGP', 'magasinier');
+    const creeLe = dateEntre(140, 135);
+    const offertLe = dateEntre(120, 118);
+    const closeLe = dateEntre(96, 94);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      motif_proposition: discours(bien, 'remplace').motif,
+      statut: 'reemploye',
+      avis_rendu_le: dateEntre(126, 124).toISOString(),
+      offert_le: offertLe.toISOString(),
+      reemploye_le: closeLe.toISOString(),
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('SGP', proposant);
+    await poserCommission(dossier, composition, dateEntre(132, 130).toISOString());
+    // Le troisième membre n'a pas suivi la majorité : sa réserve est portée au
+    // dossier, comme toute délibération réelle en garde une.
+    await poserAvis(dossier, composition, ['favorable', 'favorable', 'defavorable'],
+      avisDe(bien, 'remplace', { avecReserve: true }),
+      dateEntre(127, 125).toISOString());
+
+    const offre = await poserOffre(dossier, bien, structure, {
+      numero: await numeroSerie(bd, 'OR', annee(offertLe)),
+      ouverte_le: offertLe.toISOString(),
+      close_le: closeLe.toISOString(),
+      cloture_prevue_le: new Date(offertLe.getTime() + 30 * 86_400_000).toISOString(),
+      duree_jours: 30,
+      statut: 'close',
+      close_par: logistique.id,
+    });
+
+    const beneficiaire = caid;
+    const demandeurCaid = agentDe(agents, 'CAID', 'chef_structure');
+    await poserDemande(offre, beneficiaire, {
+      demande_par: demandeurCaid.id,
+      motif: besoinDe(bien, 0),
+      statut: 'acceptee',
+      motif_decision: 'Besoin établi et antérieur aux autres demandes : le bien est attribué à la CAID.',
+      tranchee_le: closeLe.toISOString(),
+      tranchee_par: logistique.id,
+      cree_le: dateEntre(110, 108).toISOString(),
+    });
+    const demandeurDu = agentDe(agents, 'DU', 'chef_structure');
+    await poserDemande(offre, du, {
+      demande_par: demandeurDu.id,
+      motif: besoinDe(bien, 1),
+      statut: 'ecartee',
+      motif_decision: "Le bien a été attribué à la Cellule d'Analyse des Indicateurs de Développement.",
+      tranchee_le: closeLe.toISOString(),
+      tranchee_par: logistique.id,
+      cree_le: dateEntre(105, 103).toISOString(),
+    });
+
+    // L'acte de transfert, émis au nom de la structure qui **reçoit** : c'est
+    // son titre de détention, et il doit rester lisible avec la fiche du bien.
+    comptes.documents += 1;
+    const acte = await bd.un(
+      `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
+           signe_le, fige, cree_le)
+       values ('acte_transfert', $1, $2, 'bien', $3, $4, $5, true, $5) returning id, numero`,
+      [
+        await numeroDocument(bd, 'AT', closeLe), beneficiaire.id, String(bien.id),
+        JSON.stringify({
+          origine: 'réemploi interne',
+          dossier_reforme: dossier.numero,
+          offre_reemploi: offre.numero,
+          immatriculation: bien.immatriculation,
+          designation: bien.designation,
+          structure_cedante: structure.nom,
+          structure_beneficiaire: beneficiaire.nom,
+          mention: "Transfert interne au patrimoine de la Primature au titre du réemploi : le bien change de structure détentrice et ne sort pas du registre (RG-015). Ce n'est pas une cession.",
+        }),
+        closeLe.toISOString(),
+      ],
+    );
+
+    await bd.requete(
+      `update bien set structure_id = $2, site_id = null, detenteur_id = null, maj_le = $3
+        where id = $1`,
+      [bien.id, beneficiaire.id, closeLe.toISOString()],
+    );
+    comptes.mouvements += 1;
+    await bd.requete(
+      `insert into mouvement (bien_id, structure_id, type, quantite, date,
+           structure_source_code, structure_cible_code, motif, document_id, cree_le)
+       values ($1, $2, 'reemploi', $3, $4::date, $5, $6, $7, $8, $9)`,
+      [
+        bien.id, beneficiaire.id, bien.quantite ?? 1, jour(closeLe),
+        structure.code, beneficiaire.code,
+        `Réemploi interne : bien repris par ${beneficiaire.nom} au titre de l'offre ${offre.numero} (dossier ${dossier.numero})`,
+        acte.id, closeLe.toISOString(),
+      ],
+    );
+  }
+
+  // --- 8. Un dossier saisi : le PV est figé, on attend les domaines ------
+  {
+    const structure = cgig;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'charroi');
+    const proposant = agentDe(agents, 'CGIG', 'comptable_matieres');
+    const creeLe = dateEntre(100, 96);
+    const offertLe = dateEntre(86, 84);
+    const offreCloseLe = dateEntre(55, 53);
+    const saisiLe = dateEntre(50, 48);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      motif_proposition: discours(bien, 'irreparable').motif,
+      statut: 'propose',
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('CGIG', proposant);
+    await poserCommission(dossier, composition, dateEntre(94, 92).toISOString());
+    await poserAvis(dossier, composition, ['favorable', 'favorable', 'favorable'],
+      avisDe(bien, 'irreparable'), dateEntre(90, 88).toISOString());
+    const offre = await poserOffre(dossier, bien, structure, {
+      numero: await numeroSerie(bd, 'OR', annee(offertLe)),
+      ouverte_le: offertLe.toISOString(),
+      close_le: offreCloseLe.toISOString(),
+      cloture_prevue_le: new Date(offertLe.getTime() + 30 * 86_400_000).toISOString(),
+      duree_jours: 30,
+      statut: 'close',
+      close_par: logistique.id,
+    });
+    const pv = await poserPv(dossier, bien, structure, {
+      date: saisiLe.toISOString(),
+      offre,
+      composition,
+      avis: [{ avis: 'favorable' }, { avis: 'favorable' }, { avis: 'favorable' }],
+    });
+    await bd.requete(
+      `update dossier_reforme
+          set statut = 'saisi', avis_rendu_le = $2, offert_le = $3, saisi_le = $4,
+              pv_document_id = $5, maj_le = $4
+        where id = $1`,
+      [dossier.id, dateEntre(90, 88).toISOString(), offertLe.toISOString(),
+        saisiLe.toISOString(), pv.id],
+    );
+  }
+
+  // --- 9. Un dossier clos sur un rebut : le bien est sorti du service ----
+  {
+    const structure = cgig;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'climatisation');
+    const proposant = agentDe(agents, 'CGIG', 'magasinier');
+    const creeLe = dateEntre(300, 295);
+    const offertLe = dateEntre(280, 278);
+    const offreCloseLe = dateEntre(249, 247);
+    const saisiLe = dateEntre(245, 243);
+    const decisionLe = dateEntre(215, 213);
+    const dossier = await poserDossier({
+      numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+      bien_id: bien.id,
+      structure_id: structure.id,
+      propose_par: proposant.id,
+      motif_proposition: discours(bien, 'irreparable').motif,
+      statut: 'propose',
+      cree_le: creeLe.toISOString(),
+    });
+    const composition = commissionDe('CGIG', proposant);
+    await poserCommission(dossier, composition, dateEntre(293, 291).toISOString());
+    await poserAvis(dossier, composition, ['favorable', 'favorable', 'favorable'],
+      avisDe(bien, 'irreparable'), dateEntre(288, 286).toISOString());
+    const offre = await poserOffre(dossier, bien, structure, {
+      numero: await numeroSerie(bd, 'OR', annee(offertLe)),
+      ouverte_le: offertLe.toISOString(),
+      close_le: offreCloseLe.toISOString(),
+      cloture_prevue_le: new Date(offertLe.getTime() + 30 * 86_400_000).toISOString(),
+      duree_jours: 30,
+      statut: 'close',
+      close_par: logistique.id,
+    });
+    const pv = await poserPv(dossier, bien, structure, {
+      date: saisiLe.toISOString(),
+      offre,
+      composition,
+      avis: [{ avis: 'favorable' }, { avis: 'favorable' }, { avis: 'favorable' }],
+    });
+    // La décision est **enregistrée** : autorité, référence, date. Le SIGL ne
+    // l'a pas prise (RG-016, RG-032).
+    await bd.requete(
+      `update dossier_reforme
+          set statut = 'clos', avis_rendu_le = $2, offert_le = $3, saisi_le = $4,
+              pv_document_id = $5, decision_autorite = $6, decision_reference = $7,
+              decision_date = $8::date, decision_suite = 'rebut', close_le = $9, maj_le = $9
+        where id = $1`,
+      [
+        dossier.id, dateEntre(288, 286).toISOString(), offertLe.toISOString(),
+        saisiLe.toISOString(), pv.id,
+        "Direction des domaines privés et publics de l'État",
+        `DDPPE/${annee(decisionLe)}/${entier(100, 399)}`,
+        jour(decisionLe), decisionLe.toISOString(),
+      ],
+    );
+    // L'état du registre suit la décision de l'autorité, il ne la précède pas.
+    await bd.requete(
+      "update bien set etat = 'reforme', reforme_le = $2::date, maj_le = $3 where id = $1",
+      [bien.id, jour(decisionLe), decisionLe.toISOString()],
+    );
+    comptes.mouvements += 1;
+    await bd.requete(
+      `insert into mouvement (bien_id, structure_id, type, quantite, date,
+           structure_source_code, motif, document_id, cree_le)
+       values ($1, $2, 'reforme', $3, $4::date, $5, $6, $7, $8)`,
+      [
+        bien.id, structure.id, bien.quantite ?? 1, jour(decisionLe), structure.code,
+        `Réforme prononcée par la Direction des domaines — suite : rebut — dossier ${dossier.numero}`,
+        pv.id, decisionLe.toISOString(),
+      ],
+    );
+  }
+
+  // --- 10. Un dossier clos sur un refus : le bien revient au service -----
+  //
+  // L'issue qu'on oublie toujours de prévoir. Les domaines refusent la réforme,
+  // et le bien **reste en service** : le circuit doit savoir l'enregistrer sans
+  // que personne ne touche à l'état du registre.
+  {
+    const structure = du;
+    const bien = await choisirBien(structure, ETATS_REFORMABLES, 'informatique');
+    if (bien) {
+      const proposant = agentDe(agents, 'DU', 'chef_structure');
+      const creeLe = dateEntre(260, 255);
+      const offertLe = dateEntre(240, 238);
+      const offreCloseLe = dateEntre(209, 207);
+      const saisiLe = dateEntre(205, 203);
+      const decisionLe = dateEntre(175, 173);
+      const dossier = await poserDossier({
+        numero: await numeroSerie(bd, 'DR', annee(creeLe)),
+        bien_id: bien.id,
+        structure_id: structure.id,
+        propose_par: proposant.id,
+        motif_proposition: discours(bien, 'irreparable').motif,
+        statut: 'propose',
+        cree_le: creeLe.toISOString(),
+      });
+      const composition = commissionDe('DU', proposant);
+      await poserCommission(dossier, composition, dateEntre(252, 250).toISOString());
+      await poserAvis(dossier, composition, ['favorable', 'favorable', 'favorable'],
+        avisDe(bien, 'irreparable'), dateEntre(248, 246).toISOString());
+      const offre = await poserOffre(dossier, bien, structure, {
+        numero: await numeroSerie(bd, 'OR', annee(offertLe)),
+        ouverte_le: offertLe.toISOString(),
+        close_le: offreCloseLe.toISOString(),
+        cloture_prevue_le: new Date(offertLe.getTime() + 30 * 86_400_000).toISOString(),
+        duree_jours: 30,
+        statut: 'close',
+        close_par: logistique.id,
+      });
+      const pv = await poserPv(dossier, bien, structure, {
+        date: saisiLe.toISOString(),
+        offre,
+        composition,
+        avis: [{ avis: 'favorable' }, { avis: 'favorable' }, { avis: 'favorable' }],
+      });
+      await bd.requete(
+        `update dossier_reforme
+            set statut = 'clos', avis_rendu_le = $2, offert_le = $3, saisi_le = $4,
+                pv_document_id = $5, decision_autorite = $6, decision_reference = $7,
+                decision_date = $8::date, decision_suite = 'refus', close_le = $9, maj_le = $9
+          where id = $1`,
+        [
+          dossier.id, dateEntre(248, 246).toISOString(), offertLe.toISOString(),
+          saisiLe.toISOString(), pv.id,
+          "Direction des domaines privés et publics de l'État",
+          `DDPPE/${annee(decisionLe)}/${entier(400, 699)}`,
+          jour(decisionLe), decisionLe.toISOString(),
+        ],
+      );
+      // Rien n'est touché sur la fiche : le bien n'a jamais été réformé.
+    }
+  }
+
+  return comptes;
+}
+
 function entreesDeConsommation(agents, stocks) {
   const entrees = [];
   const aUnRole = (a, ...codes) => codes.some((c) => a.roles.includes(c));
@@ -1652,6 +2609,8 @@ async function rapporter(attendus) {
     'document', 'alerte',
     'campagne_inventaire', 'campagne_agent', 'constat_inventaire', 'ecart_inventaire',
     'rapprochement', 'rapprochement_poste', 'rapprochement_partie',
+    'dossier_reforme', 'membre_commission', 'avis_commission',
+    'offre_reemploi', 'demande_reemploi',
     'journal',
   ];
 

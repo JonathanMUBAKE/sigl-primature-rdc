@@ -1608,3 +1608,128 @@ a.chiffre:hover {
 .cle-valeur {
   color: var(--encre-douce);
 }
+
+/* ------------------------------------------------------------------ */
+/* Chemin de fer (les sept étapes d'un circuit de réforme)             */
+/* ------------------------------------------------------------------ */
+
+/*
+  Un rail sobre : un filet par étape, le rang dans une pastille ronde, le
+  libellé, puis l'état ÉCRIT sous lui. La couleur ne porte jamais seule
+  l'information. Aucune ombre portée ; les jetons décident de tout, dans les
+  deux modes. L'avancement vient du serveur : cette brique ne fait que le
+  montrer.
+*/
+.chemin-de-fer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: var(--espace-2) var(--espace-4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chemin-etape {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--espace-2);
+  min-width: 0;
+  padding-top: var(--espace-2);
+  border-top: 2px solid var(--ligne);
+}
+
+.chemin-etape.est-faite {
+  border-top-color: var(--vert);
+}
+
+.chemin-etape.est-courante {
+  border-top-color: var(--accent);
+}
+
+.chemin-etape.est-sautee {
+  border-top-style: dashed;
+}
+
+.chemin-rang {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: var(--filet) solid var(--ligne-forte);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--texte-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--encre-douce);
+}
+
+.chemin-etape.est-faite .chemin-rang {
+  background: var(--vert-pale);
+  border-color: transparent;
+  color: var(--vert-texte);
+}
+
+.chemin-etape.est-courante .chemin-rang {
+  background: var(--voile-accent);
+  border-color: transparent;
+  color: var(--accent-texte);
+}
+
+.chemin-etape.est-sautee .chemin-rang {
+  color: var(--encre-faible);
+}
+
+.chemin-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chemin-nom {
+  font-size: var(--texte-m);
+  color: var(--encre);
+  line-height: var(--hauteur-serree);
+}
+
+.chemin-etape.est-courante .chemin-nom {
+  color: var(--accent-texte);
+}
+
+.chemin-etape.est-a_venir .chemin-nom,
+.chemin-etape.est-sautee .chemin-nom {
+  color: var(--encre-douce);
+}
+
+.chemin-note {
+  font-size: var(--texte-xs);
+  /* L'état de l'étape est écrit ici : c'est du texte courant, donc
+     --encre-douce et non --encre-faible, réservé aux repères. */
+  color: var(--encre-douce);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pagination d'un écran de liste                                      */
+/* ------------------------------------------------------------------ */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--espace-3);
+  margin-top: var(--espace-3);
+}
+
+.pagination-dit {
+  font-size: var(--texte-xs);
+  color: var(--encre-douce);
+  font-variant-numeric: tabular-nums;
+}
+
+.pagination-gestes {
+  display: flex;
+  gap: var(--espace-2);
+}

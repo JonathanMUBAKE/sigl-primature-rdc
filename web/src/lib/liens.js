@@ -16,6 +16,12 @@ const ECRANS = {
   'campagnes-inventaire': '/inventaire',
   'ecarts-inventaire': '/inventaire',
   rapprochements: '/rapprochements',
+  // Le circuit de réforme : le dossier est le poste de travail, et l'offre de
+  // réemploi se lit au catalogue — celui-ci n'ouvre pas une offre par adresse,
+  // il la montre dans un tiroir, donc le lien retombe sur le catalogue.
+  'dossiers-reforme': '/reforme',
+  'offres-reemploi': '/reemploi',
+  'demandes-reemploi': '/reemploi',
 }
 
 /*
@@ -23,7 +29,11 @@ const ECRANS = {
   serveur porte l'identifiant, et on le garde plutôt que de retomber sur la
   liste. Pour les autres, le comportement ne change pas.
 */
-const GARDENT_IDENTIFIANT = new Set(['campagnes-inventaire', 'rapprochements'])
+const GARDENT_IDENTIFIANT = new Set([
+  'campagnes-inventaire',
+  'rapprochements',
+  'dossiers-reforme',
+])
 
 /** Transforme un lien d'API en adresse d'écran, ou rend null. */
 export function lienUi(lien) {

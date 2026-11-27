@@ -31,6 +31,17 @@ export const ACTIONS_SENSIBLES = [
   'explication_ecart_inventaire', 'arbitrage_ecart_inventaire',
   'ouverture_rapprochement', 'poste_rapprochement', 'partie_rapprochement',
   'attestation_rapprochement', 'cloture_rapprochement',
+  // Le circuit de réforme et l'offre de réemploi. Onze actions, et aucune n'est
+  // anodine : chacune rapproche un bien de la sortie du service, ou le fait
+  // changer de main. `enregistrement_decision_domaines` et `reemploi_prononce`
+  // sont les deux plus lourdes du lot — l'une sort le bien du service, l'autre
+  // le transfère d'une structure à une autre —, et c'est pour celles-là surtout
+  // que le journal doit porter l'avant et l'après.
+  'proposition_reforme', 'designation_commission_reforme', 'avis_commission_reforme',
+  'conclusion_commission_reforme', 'ouverture_offre_reemploi', 'saisine_domaines',
+  'enregistrement_decision_domaines',
+  'demande_reemploi', 'cloture_offre_reemploi', 'arbitrage_demande_reemploi',
+  'reemploi_prononce',
 ];
 
 export function estSensible(action) {

@@ -75,6 +75,32 @@ const TONS = {
   constate: 'attente',
   explique: 'attente',
   tranche: 'succes',
+  /*
+    Le circuit de réforme — LOT-REFORME. « rejeté » et « clos » sont déjà dits
+    plus haut ; une offre « ouverte » est un fait, pas une alerte, et
+    « réemployé » est la bonne fin du circuit : un bien repart en service au
+    lieu de sortir du patrimoine.
+  */
+  propose: 'info',
+  offert: 'info',
+  reemploye: 'succes',
+  saisi: 'attente',
+  // avis_commission.avis
+  favorable: 'succes',
+  defavorable: 'critique',
+  // demande_reemploi.statut
+  deposee: 'attente',
+  acceptee: 'succes',
+  ecartee: 'neutre',
+  // decision_domaines.suite — enregistrée, jamais prononcée (RG-032)
+  cession: 'info',
+  rebut: 'neutre',
+  refus: 'critique',
+  // etape.etat du circuit, tel que le serveur le rend
+  faite: 'succes',
+  courante: 'info',
+  a_venir: 'neutre',
+  sautee: 'neutre',
   // structure.regime
   integre: 'info',
   autonome: 'attente',

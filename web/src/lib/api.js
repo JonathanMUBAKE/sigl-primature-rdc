@@ -214,6 +214,51 @@ export const api = {
   cloreRapprochement: (id, corps, o) =>
     poster(`/rapprochements/${encodeURIComponent(id)}/clore`, corps, o),
 
+  /*
+    Le circuit de réforme et l'offre de réemploi — décret 13/050 (la cession et
+    la mise au rebut relèvent de l'administration des domaines), contrat du lot
+    dans `docs/LOT-REFORME.md`. Ce contrat est GELÉ : les routes, les statuts et
+    les noms de champs sont arrêtés avant l'écriture du code, et l'interface est
+    construite contre lui — pas contre ce que l'API renvoie un jour donné.
+
+    `GET /api/dossiers-reforme/:id` rend
+      { dossier, bien, commission[], avis[], offre, demandes[], decision, etapes }
+    `etapes` porte les SEPT étapes du lot, chacune
+      { numero, libelle, etat, le, par_nom } avec etat ∈ faite|courante|a_venir|sautee.
+    L'écran les affiche ; il ne déduit jamais l'avancement d'un circuit.
+    Chaque action possible est accompagnée d'un { possible, code, motif } —
+    `offre_possible`, `saisine_possible`, `decision_possible` : le bouton est
+    grisé d'après `possible`, et le motif est affiché TEL QUEL.
+  */
+  dossiersReforme: (p, o) => lire('/dossiers-reforme', p, o),
+  dossierReforme: (id, o) => lire(`/dossiers-reforme/${encodeURIComponent(id)}`, null, o),
+  proposerReforme: (corps, o) => poster('/dossiers-reforme', corps, o),
+  designerMembreCommission: (id, corps, o) =>
+    poster(`/dossiers-reforme/${encodeURIComponent(id)}/commission`, corps, o),
+  donnerAvisReforme: (id, corps, o) =>
+    poster(`/dossiers-reforme/${encodeURIComponent(id)}/avis`, corps, o),
+  offrirAuReemploi: (id, corps, o) =>
+    poster(`/dossiers-reforme/${encodeURIComponent(id)}/offrir`, corps ?? {}, o),
+  saisirLesDomaines: (id, o) => poster(`/dossiers-reforme/${encodeURIComponent(id)}/saisir`, {}, o),
+  enregistrerDecisionDomaines: (id, corps, o) =>
+    poster(`/dossiers-reforme/${encodeURIComponent(id)}/decision`, corps, o),
+
+  /*
+    L'offre de réemploi est une PUBLICATION : elle est lisible de toute session
+    positionnée, et elle porte sa propre copie de ce qu'elle publie —
+    `bien_designation`, `bien_immatriculation`, `bien_categorie_code`,
+    `bien_etat`, `structure_origine_code`, `structure_origine_nom`,
+    `site_origine_nom`, `cloture_prevue_le`. On lit ces champs SUR L'OFFRE : le
+    bien, lui, est cloisonné et rendrait null hors périmètre.
+  */
+  offresReemploi: (p, o) => lire('/offres-reemploi', p, o),
+  offreReemploi: (id, o) => lire(`/offres-reemploi/${encodeURIComponent(id)}`, null, o),
+  demanderReemploi: (id, corps, o) =>
+    poster(`/offres-reemploi/${encodeURIComponent(id)}/demandes`, corps, o),
+  cloreOffreReemploi: (id, o) => poster(`/offres-reemploi/${encodeURIComponent(id)}/clore`, {}, o),
+  trancherDemandeReemploi: (id, corps, o) =>
+    poster(`/demandes-reemploi/${encodeURIComponent(id)}/trancher`, corps, o),
+
   tableauDeBord: (o) => lire('/tableau-de-bord', null, o),
 
   journal: (p, o) => lire('/journal', p, o),

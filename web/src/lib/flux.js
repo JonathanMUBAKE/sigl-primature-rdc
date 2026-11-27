@@ -42,6 +42,12 @@ const SUJETS = [
   // ce nom-là : écouter « inventaires » ne rendrait qu'un flux muet.
   'inventaire',
   'rapprochement',
+  // Le circuit de réforme et l'offre de réemploi, eux aussi AU SINGULIER :
+  // `reforme` (dossier, avis, décision) et `reemploi` (offre, demande). Au
+  // singulier, parce qu'un flux silencieux ressemble à un flux calme — la
+  // faute a déjà été payée une fois sur l'inventaire.
+  'reforme',
+  'reemploi',
 ]
 
 /** Les sujets qu'un `objet` du serveur concerne. Le premier est le principal. */
@@ -77,6 +83,20 @@ const SUJETS_PAR_OBJET = {
   rapprochement_poste: ['rapprochement'],
   rapprochement_partie: ['rapprochement'],
   pv_perte: ['documents', 'inventaire'],
+  // Le circuit de réforme et l'offre de réemploi. Le serveur publie
+  // `objet: 'reforme'` et `objet: 'reemploi'` ; les noms de table sont admis
+  // par prudence. Un réemploi prononcé touche aussi le patrimoine : le bien
+  // change de structure dans la même transaction.
+  reforme: ['reforme'],
+  dossier_reforme: ['reforme'],
+  avis_commission: ['reforme'],
+  commission_reforme: ['reforme'],
+  decision_domaines: ['reforme'],
+  pv_reforme: ['documents', 'reforme'],
+  reemploi: ['reemploi'],
+  offre_reemploi: ['reemploi'],
+  demande_reemploi: ['reemploi'],
+  acte_transfert: ['documents', 'reemploi', 'patrimoine'],
 }
 
 /** Tous les noms d'événement que le serveur peut poser dans `event:`. */

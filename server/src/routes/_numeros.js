@@ -22,6 +22,11 @@ export const PREFIXES = {
   // portent leur propre série, comme toute pièce numérotée du SIGL.
   campagne_inventaire: 'CI',
   rapprochement: 'RAP',
+  // Le lot « réforme » : le dossier et l'offre de réemploi portent chacun leur
+  // série. Le procès-verbal de réforme, lui, garde la série `PVR` déjà posée —
+  // c'est la même pièce qu'avant, produite au bout d'un circuit plus long.
+  dossier_reforme: 'DR',
+  offre_reemploi: 'OR',
 };
 
 /** Le prochain numéro d'une série, pour l'année donnée : EB-2026-00017. */

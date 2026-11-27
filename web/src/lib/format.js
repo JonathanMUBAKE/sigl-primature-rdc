@@ -247,6 +247,36 @@ const LIBELLES = {
   // ecart_inventaire.decision — « perte » est déjà dit plus haut
   regularisation: 'Régularisation',
   maintien: 'Maintien en l’état',
+  /*
+    Le circuit de réforme et l'offre de réemploi — LOT-REFORME.
+    `rejete`, `clos`, `ouverte`, `close` et `reemploi` sont déjà dits plus haut.
+  */
+  // dossier_reforme.statut
+  propose: 'Proposé',
+  offert: 'Offert au réemploi',
+  reemploye: 'Réemployé',
+  saisi: 'Domaines saisis',
+  // avis_commission.avis
+  favorable: 'Favorable',
+  defavorable: 'Défavorable',
+  // membre_commission.qualite
+  president: 'Président de la commission',
+  rapporteur: 'Rapporteur',
+  secretaire: 'Secrétaire de séance',
+  membre: 'Membre',
+  // demande_reemploi.statut
+  deposee: 'Déposée',
+  acceptee: 'Acceptée',
+  ecartee: 'Écartée',
+  // decision_domaines.suite — enregistrée, jamais prononcée (RG-016, RG-032)
+  cession: 'Cession',
+  rebut: 'Mise au rebut',
+  refus: 'Refus des domaines',
+  // etape.etat du circuit de réforme
+  faite: 'Faite',
+  courante: 'En cours',
+  a_venir: 'À venir',
+  sautee: 'Sautée',
   // rôles
   demandeur: 'Agent demandeur',
   chef_structure: 'Chef de structure',

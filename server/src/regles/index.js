@@ -1,4 +1,4 @@
-// Les 27 règles de gestion de la section 3 du contrat, en un seul point d'entrée.
+// Les 33 règles de gestion de la section 3 du contrat, en un seul point d'entrée.
 // Toutes pures : elles reçoivent les données déjà chargées et rendent null ou
 // { code, message, champ }.
 
@@ -29,6 +29,21 @@ export { rg024, ecartsNonTranches } from './rg-024.js';
 export { rg025 } from './rg-025.js';
 export { rg026 } from './rg-026.js';
 export { rg027, attestationsManquantes, QUALITES_PARTIE } from './rg-027.js';
+export { rg028, demandesPendantes } from './rg-028.js';
+export { rg029 } from './rg-029.js';
+export { rg030 } from './rg-030.js';
+export { rg031, AVIS } from './rg-031.js';
+export { rg032, SUITES } from './rg-032.js';
+export { rg033, ROUTE_DU_CIRCUIT } from './rg-033.js';
+
+// Le quorum et la majorité de la commission de réforme : posés à un seul
+// endroit, pour être renversés à peu de frais quand l'institution tranchera.
+export { avisDeLaCommission, manqueALaCommission } from './commission.js';
+
+// Les dates dans les messages. Le seul endroit où une date devient du texte
+// dans une règle : les refus sont affichés tels quels par l'interface, et un
+// `Date.toString()` tronqué y avait écrit « jusqu'au Wed Dec 16 ».
+export { dateEnFrancais, mentionDeDate } from './dates.js';
 
 export { normaliserSeuils, procedurePourMontant, plancherFranchi, rangProcedure, PROCEDURES } from './seuils.js';
 export * from './roles.js';

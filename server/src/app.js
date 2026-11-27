@@ -26,6 +26,8 @@ import routesAchats from './routes/achats.js';
 import routesReceptions from './routes/receptions.js';
 import routesInventaire from './routes/inventaire.js';
 import routesRapprochements from './routes/rapprochements.js';
+import routesReforme from './routes/reforme.js';
+import routesReemploi from './routes/reemploi.js';
 import routesDocuments from './routes/documents.js';
 import routesAlertes from './routes/alertes.js';
 import routesTableauDeBord from './routes/tableau-de-bord.js';
@@ -120,7 +122,7 @@ export async function construireApp(options = {}) {
   for (const routes of [
     routesSante, routesStructures, routesBiens, routesStocks, routesBesoins,
     routesFournisseurs, routesAchats, routesReceptions, routesInventaire,
-    routesRapprochements, routesDocuments,
+    routesRapprochements, routesReforme, routesReemploi, routesDocuments,
     routesAlertes, routesTableauDeBord, routesJournal, routesFlux,
   ]) {
     await app.register(routes);
