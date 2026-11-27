@@ -11,6 +11,7 @@ import {
 import { appliquer, liste, nonTrouve, pagination, schemaIdParam, schemaPagination } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
 import { publier } from './_flux.js';
+import { avecNature, STATUTS_EN_COURS } from './_alertes.js';
 import { rg022 } from '../regles/rg-022.js';
 
 const STATUTS = ['ouverte', 'en_examen', 'justifiee', 'confirmee', 'classee'];
@@ -30,6 +31,9 @@ export default async function routesAlertes(app) {
           objet_type: { type: 'string', maxLength: 40 },
           structure: { type: 'string', format: 'uuid' },
           ouvertes: { type: 'boolean' },
+          // La nature, demandée explicitement : ce qui brûle, ou ce qui
+          // attend seulement d'être classé.
+          nature: { type: 'string', enum: ['active', 'a_classer', 'tranchee'] },
           ...schemaPagination,
         },
       },
@@ -62,6 +66,14 @@ export default async function routesAlertes(app) {
       }
     }
     if (request.query.ouvertes) ou += ` and al.statut in ('ouverte', 'en_examen')`;
+    // Le filtre par nature se dit en SQL, pour que la pagination reste juste.
+    if (request.query.nature === 'active') {
+      ou += ` and al.statut in ('ouverte', 'en_examen') and al.donnees->>'condition_levee_le' is null`;
+    } else if (request.query.nature === 'a_classer') {
+      ou += ` and al.statut in ('ouverte', 'en_examen') and al.donnees->>'condition_levee_le' is not null`;
+    } else if (request.query.nature === 'tranchee') {
+      ou += ` and al.statut not in ('ouverte', 'en_examen')`;
+    }
 
     const total = await lireUn(request, `select count(*)::int as n from alerte al ${ou}`, params);
     const donnees = await lireTous(request, 
@@ -76,7 +88,26 @@ export default async function routesAlertes(app) {
         limit $${params.length + 1} offset $${params.length + 2}`,
       [...params, page.parPage, page.decalage],
     );
-    return liste(donnees, total.n, page);
+    // Le compte par nature, pour que le bandeau n'ait pas à le déduire.
+    const parNature = await lireUn(request, 
+      `select
+         count(*) filter (where al.statut in ('ouverte', 'en_examen')
+                            and al.donnees->>'condition_levee_le' is null)::int as actives,
+         count(*) filter (where al.statut in ('ouverte', 'en_examen')
+                            and al.donnees->>'condition_levee_le' is not null)::int as a_classer,
+         count(*) filter (where al.statut not in ('ouverte', 'en_examen'))::int as tranchees
+       from alerte al ${ou}`,
+      params,
+    );
+    return {
+      ...liste(donnees.map(avecNature), total.n, page),
+      resume: {
+        actives: parNature.actives,
+        a_classer: parNature.a_classer,
+        tranchees: parNature.tranchees,
+        en_cours: parNature.actives + parNature.a_classer,
+      },
+    };
   });
 
   app.get('/api/alertes/:id', {
@@ -93,7 +124,7 @@ export default async function routesAlertes(app) {
     );
     if (!alerte) throw nonTrouve('Cette alerte');
     await verifierLecture(request, alerte.structure_id);
-    return alerte;
+    return avecNature(alerte);
   });
 
   // --- Le traitement : RG-022 -----------------------------------------
@@ -138,7 +169,7 @@ export default async function routesAlertes(app) {
         avant: { statut: alerte.statut, suite: alerte.suite, traite_par: alerte.traite_par },
         apres: { statut: request.body.statut, suite: request.body.suite ?? null, traite_par: request.agent.id },
       });
-      const tranchee = !['ouverte', 'en_examen'].includes(request.body.statut);
+      const tranchee = !STATUTS_EN_COURS.includes(request.body.statut);
       return lireUn(request, 
         `update alerte set statut = $2, suite = $3,
                 traite_par = case when $4 then $5::uuid else traite_par end,
@@ -155,6 +186,6 @@ export default async function routesAlertes(app) {
       structure_id: alerte.structure_id,
       donnees: { statut: resultat.statut },
     });
-    return resultat;
+    return avecNature(resultat);
   });
 }

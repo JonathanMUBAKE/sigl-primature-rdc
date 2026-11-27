@@ -208,9 +208,10 @@ describe('La chaîne de l’alerte de seuil, de bout en bout', () => {
     assert.equal(notifiees('alerte').length, 0);
   });
 
-  // Le comportement actuel, consigné tel qu'il est — et discuté dans le compte
-  // rendu : la base ne referme pas l'alerte d'elle-même.
-  it('une entrée qui repasse au-dessus ne referme pas l’alerte : un humain tranche', async () => {
+  // Décision du 27 novembre 2026 (docs/JOURNAL-DU-CHANTIER.md) : l'alerte ne se
+  // referme pas d'elle-même — RG-022, un humain classe — mais le retour
+  // au-dessus du seuil est horodaté, et il lève le verrou anti-doublon.
+  it('une entrée qui repasse au-dessus ne referme pas l’alerte, mais l’horodate', async () => {
     await mouvement('entree', 190); // 10 → 200, au-dessus des deux seuils
     assert.equal(await quantite(), 200);
 
@@ -218,10 +219,59 @@ describe('La chaîne de l’alerte de seuil, de bout en bout', () => {
     assert.equal(toutes.length, 2, 'aucune alerte n’est créée ni supprimée par une entrée');
     for (const a of toutes) {
       assert.equal(a.statut, 'ouverte', 'elles restent ouvertes : RG-022, un humain tranche');
+      // Le retour au-dessus est consigné : date, et quantité qui l'a levé.
+      assert.ok(
+        a.donnees.condition_levee_le,
+        `${a.code} : le retour au-dessus du seuil doit être horodaté`,
+      );
+      assert.match(a.donnees.condition_levee_le, /^\d{4}-\d{2}-\d{2}T/);
+      assert.equal(Number(a.donnees.quantite_au_retour), 200);
+      // Et rien d'autre n'a changé : ni le statut, ni la quantité constatée à
+      // l'ouverture, ni les seuils (RG-022).
+      assert.equal(Number(a.donnees.quantite_avant) >= 0, true);
     }
-    // Rien n'a été notifié sur le canal des alertes : le stock seul a bougé.
-    assert.equal(notifiees('alerte').length, 0);
+    // Aucune alerte n'a été créée ; seule leur marque a été posée, et le stock
+    // a bougé. Les deux tables notifient, c'est normal.
     assert.ok(notifiees('stock').length > 0);
+  });
+
+  it('LE POINT QUI COMPTE — une rupture qui se répète n’est jamais muette', async () => {
+    // Le défaut que la version précédente cachait : l'article replonge alors
+    // que la première alerte est toujours `ouverte`. Avant, le verrou
+    // anti-doublon la faisait taire et personne n'était averti de la seconde
+    // rupture. Maintenant, la condition ayant été levée entre-temps, une
+    // **nouvelle** alerte s'ouvre — et l'ancienne reste à classer.
+    const avant = await alertes('STOCK_SOUS_MINIMUM');
+    assert.equal(avant.length, 1);
+    assert.ok(avant[0].donnees.condition_levee_le, 'sa condition a été levée');
+
+    await mouvement('sortie', 160); // 200 → 40, sous le minimum de 50
+    assert.equal(await quantite(), 40);
+
+    const apres = await alertes('STOCK_SOUS_MINIMUM');
+    assert.equal(apres.length, 2, 'la seconde rupture doit lever sa propre alerte');
+    // La nouvelle est active : sa condition n'est pas levée.
+    assert.equal(apres.at(-1).statut, 'ouverte');
+    assert.equal(apres.at(-1).donnees.condition_levee_le, undefined);
+    assert.equal(Number(apres.at(-1).donnees.quantite), 40);
+    assert.equal(Number(apres.at(-1).donnees.quantite_avant), 200);
+    // L'ancienne n'a pas bougé : elle attend toujours son classement.
+    assert.equal(apres[0].statut, 'ouverte');
+    assert.ok(apres[0].donnees.condition_levee_le);
+
+    // Et l'événement part sur `sigl_flux`, comme pour la première.
+    await attendre(() => notifiees('alerte').length > 0);
+    const emises = notifiees('alerte').filter((e) => e.type === 'creation');
+    assert.equal(emises.length, 1, 'une alerte nouvelle, un événement émis');
+    assert.equal(String(emises[0].id), String(apres.at(-1).id));
+  });
+
+  it('en revanche, tant que la condition tient, le verrou tient aussi', async () => {
+    // Pas de harcèlement : l'alerte active ne se répète pas.
+    await mouvement('sortie', 5); // 40 → 35, toujours sous le minimum
+    assert.equal(await quantite(), 35);
+    assert.equal((await alertes('STOCK_SOUS_MINIMUM')).length, 2, 'pas de troisième');
+    assert.equal(notifiees('alerte').length, 0);
   });
 
   it('une fois l’alerte classée par un humain, un nouveau franchissement en ouvre une autre', async () => {
@@ -233,11 +283,16 @@ describe('La chaîne de l’alerte de seuil, de bout en bout', () => {
       [article.id, agentSgp.id],
     ));
 
+    const dejaOuvertes = (await alertes('STOCK_SOUS_MINIMUM')).length;
+    await mouvement('entree', 165); // 35 → 200, au-dessus des deux seuils
     await mouvement('sortie', 160); // 200 → 40, sous le minimum de 50
     assert.equal(await quantite(), 40);
 
     const minimums = await alertes('STOCK_SOUS_MINIMUM');
-    assert.equal(minimums.length, 2, 'la précédente étant classée, une nouvelle s’ouvre');
+    assert.equal(
+      minimums.length, dejaOuvertes + 1,
+      'les précédentes étant classées, une nouvelle s’ouvre',
+    );
     assert.equal(minimums.at(-1).statut, 'ouverte');
 
     await attendre(() => notifiees('alerte').length > 0);
@@ -250,7 +305,8 @@ describe('La chaîne de l’alerte de seuil, de bout en bout', () => {
       [article.id],
     ));
     // Les seuils sont ceux posés au départ : aucune alerte ne les a ajustés,
-    // aucune n'a réapprovisionné ni bloqué quoi que ce soit.
+    // aucune n'a réapprovisionné ni bloqué quoi que ce soit, et aucune n'a
+    // changé son propre statut — seul un humain l'a fait.
     assert.equal(etat.quantite, 40);
     assert.equal(etat.seuil_minimum, 50);
     assert.equal(etat.seuil_critique, 20);

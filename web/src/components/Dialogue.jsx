@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
+import clsx from 'clsx'
 import { X } from 'lucide-react'
 
 /*
   Un dialogue pour les actions qui demandent un motif ou une confirmation.
   Échap ferme, le voile ferme, le focus entre dans le dialogue.
 */
-export default function Dialogue({ ouvert, titre, surFermeture, pied, children }) {
+export default function Dialogue({ ouvert, titre, surFermeture, pied, large = false, children }) {
   const boite = useRef(null)
 
   useEffect(() => {
@@ -23,7 +24,7 @@ export default function Dialogue({ ouvert, titre, surFermeture, pied, children }
   return (
     <div className="dialogue-voile" onMouseDown={(e) => e.target === e.currentTarget && surFermeture?.()}>
       <div
-        className="dialogue"
+        className={clsx('dialogue', large && 'est-large')}
         role="dialog"
         aria-modal="true"
         aria-label={titre}

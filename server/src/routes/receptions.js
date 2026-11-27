@@ -186,9 +186,17 @@ export default async function routesReceptions(app) {
                 designation: { type: 'string', minLength: 2, maxLength: 200 },
                 categorie_code: { type: ['string', 'null'], maxLength: 40 },
                 quantite_commandee: { type: 'integer', minimum: 0 },
-                // Ce que le fournisseur a présenté au bordereau. Facultatif :
-                // sans elle, le livré vaut le reçu, et on ne suppose pas un
-                // écart qui n'a pas été constaté.
+                // Ce que le fournisseur a présenté au bordereau.
+                //
+                // **Facultative, et c'est une décision** (27 novembre 2026,
+                // `docs/JOURNAL-DU-CHANTIER.md`) : sans elle, le livré vaut le
+                // reçu. Supposer un écart qu'on n'a pas constaté serait pire
+                // que de n'en rien dire — un écart inventé déclenche une
+                // enquête pour rien et décrédibilise tous les autres.
+                //
+                // Le jour où la Primature imposera un bordereau de livraison
+                // opposable, cette quantité deviendra obligatoire. Ce sera une
+                // décision de l'institution, pas la nôtre.
                 quantite_livree: { type: ['integer', 'null'], minimum: 0 },
                 quantite_recue: { type: 'integer', minimum: 0 },
                 conforme: { type: 'boolean', default: true },

@@ -55,3 +55,60 @@ qui était visé, le point est à reprendre.
 des données, développeur serveur, concepteur d'interface. Chacun a sa fiche de poste dans
 `.claude/agents/` et un périmètre de fichiers disjoint, pour qu'ils travaillent en parallèle sans
 conflit.
+
+## 27 novembre 2026 — deux décisions sur les alertes et les écarts de réception
+
+**Une alerte de stock ne se referme jamais toute seule, mais elle ne bâillonne plus la suivante.**
+
+Le comportement constaté était celui-ci : un article passe sous son seuil, l'alerte s'ouvre ; il est
+réapprovisionné, la quantité repasse au-dessus, et l'alerte reste `ouverte` — ce qui est juste, RG-022
+veut que le système n'décide rien et qu'un humain classe. Mais le garde-fou anti-doublon ne regardait
+que le statut : tant qu'une alerte du même code était en cours, aucune autre ne pouvait s'ouvrir.
+Conséquence, invisible par construction : **un article qui replonge ne levait aucune nouvelle alerte.**
+
+Une alerte qui traîne sur un article réapprovisionné n'est que du bruit. Une rupture qui se répète et
+reste muette est une alerte manquée, et dans un système dont le métier est d'avertir, c'est la panne
+la plus coûteuse qui soit — personne ne la voit passer.
+
+Trois changements, et pas un quatrième :
+
+1. **Le retour au-dessus du seuil est horodaté** dans `donnees` de l'alerte : `condition_levee_le` et
+   `quantite_au_retour`. L'alerte ne se referme pas pour autant. L'humain classe en sachant que la
+   condition n'est plus réunie, au lieu de le deviner.
+2. **Le verrou anti-doublon saute quand la condition a été levée.** Une alerte dont la condition est
+   levée n'attend plus qu'un classement : un nouveau franchissement ouvre une alerte **nouvelle**, et
+   l'ancienne reste ouverte, à classer. Tant que la condition tient, en revanche, le verrou tient : on
+   ne harcèle pas le magasinier pendant qu'il instruit.
+3. **Les deux natures sont dites explicitement dans l'API**, pas déduites par l'interface :
+   `nature` ∈ `active` (la condition est réunie — ça brûle), `a_classer` (la condition est levée,
+   personne n'a tranché), `tranchee` (un humain s'est prononcé), avec `condition_levee`,
+   `condition_levee_le`, `quantite_au_retour` et `en_cours`. `GET /api/alertes` accepte `?nature=` et
+   rend son résumé par nature ; le tableau de bord sépare les deux et son chiffre de tête, renommé
+   « Alertes actives », ne compte plus que ce qui brûle.
+
+Rien là-dedans ne change un état métier : ni la quantité, ni les seuils, ni le statut d'une alerte.
+RG-022 tient. Migration `supabase/migrations/20261127020000_alerte_condition_levee.sql`, preuves dans
+`server/src/alerte-seuil-bout-en-bout.test.js` (franchissement, retour au-dessus, nouveau
+franchissement : **deux** alertes et non une) et `server/src/routes/alertes-nature.test.js`.
+
+**La quantité livrée d'une réception reste facultative.**
+
+Les écarts de réception se lisent désormais en trois colonnes — commandé, livré, reçu — parce que les
+trois ne se confondent pas : le fournisseur présente une quantité au bordereau, le magasinier en
+accepte une autre, la commande en demandait une troisième. La quantité livrée est **facultative**, et
+sans elle le livré vaut le reçu.
+
+C'est délibéré. Supposer un écart qu'on n'a pas constaté serait pire que de n'en rien dire : un écart
+inventé déclenche une enquête pour rien et décrédibilise tous les autres. Le jour où la Primature
+imposera un bordereau de livraison opposable, la quantité livrée deviendra obligatoire — ce sera une
+décision de l'institution, pas la nôtre. La note est portée à l'endroit du code qui la tient,
+`server/src/routes/receptions.js`.
+
+**Au passage, un défaut que les tests ne voyaient pas.** La politique `journal_lecture` de l'ADR-001
+réserve le journal au mode consolidation, le journal ne portant pas de `structure_id`. Lu sous une
+transaction métier ordinaire, il ne rendait rien : la **consommation constatée était donc toujours
+vide pour le magasinier et le comptable des matières**, c'est-à-dire pour ceux-là mêmes qui ouvrent
+l'écran des stocks — et avec elle les jours de couverture, la date de rupture prévisible et la
+criticité « rupture prévue ». Corrigé par une lecture consolidée nommée et strictement bornée (une
+seule action, les seuls articles déjà filtrés par la sécurité au niveau des lignes), commentée sur
+place. `GET /api/journal` reste réservé au contrôle externe.

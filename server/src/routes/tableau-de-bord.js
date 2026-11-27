@@ -273,14 +273,22 @@ export default async function routesTableauDeBord(app) {
 
     // --- Les alertes ouvertes, par gravité -----------------------------
     const pAlertes = [];
-    const alertes = await lireTous(request, 
+    const alertes = await lireTous(request,
       `select al.gravite, al.statut, count(*)::int as nombre,
-              max(extract(day from now() - al.cree_le))::int as plus_ancienne_jours
+              max(extract(day from now() - al.cree_le))::int as plus_ancienne_jours,
+              -- Ce qui brûle, et ce qui attend seulement d'être classé : une
+              -- alerte dont la condition a été levée depuis n'est pas de même
+              -- nature qu'une alerte active (migration 020000).
+              count(*) filter (where al.donnees->>'condition_levee_le' is null)::int as actives,
+              count(*) filter (where al.donnees->>'condition_levee_le' is not null)::int as condition_levee
          from alerte al
         where true${filtre(permises, 'al.structure_id', pAlertes)}
         group by al.gravite, al.statut`,
       pAlertes,
     );
+    const enCours = alertes.filter((a) => ['ouverte', 'en_examen'].includes(a.statut));
+    const alertesActives = enCours.reduce((s, a) => s + a.actives, 0);
+    const alertesAClasser = enCours.reduce((s, a) => s + a.condition_levee, 0);
 
     // --- L'activité des derniers jours ---------------------------------
     const activite = await lireTous(request, 
@@ -324,7 +332,10 @@ export default async function routesTableauDeBord(app) {
         { libelle: "Valeur d'acquisition (FC)", valeur: Number(valeurTotale.valeur), lien: '/api/biens' },
         { libelle: 'Décisions en attente', valeur: enAttenteDeDecision.length, lien: '/api/besoins?statut=vise' },
         { libelle: 'Articles sous seuil', valeur: sousMinimum + sousCritique + enRupture, lien: '/api/stocks?sous_seuil=true' },
-        { libelle: 'Alertes ouvertes', valeur: alertes.filter((a) => ['ouverte', 'en_examen'].includes(a.statut)).reduce((s, a) => s + a.nombre, 0), lien: '/api/alertes?ouvertes=true' },
+        // Le chiffre de tête ne compte que ce qui brûle : une alerte dont la
+        // condition est levée n'attend plus qu'un classement, elle n'appelle
+        // pas une décision d'approvisionnement.
+        { libelle: 'Alertes actives', valeur: alertesActives, lien: '/api/alertes?nature=active' },
       ],
       en_attente_de_decision: {
         total: enAttenteDeDecision.length,
@@ -387,8 +398,13 @@ export default async function routesTableauDeBord(app) {
           ...a,
           lien: `/api/alertes?gravite=${a.gravite}&statut=${a.statut}`,
         })),
-        ouvertes: alertes.filter((a) => ['ouverte', 'en_examen'].includes(a.statut)).reduce((s, a) => s + a.nombre, 0),
+        ouvertes: enCours.reduce((s, a) => s + a.nombre, 0),
+        // Les deux natures séparées : ce qui brûle, ce qui attend un classement.
+        actives: alertesActives,
+        a_classer: alertesAClasser,
         lien: '/api/alertes?ouvertes=true',
+        lien_actives: '/api/alertes?nature=active',
+        lien_a_classer: '/api/alertes?nature=a_classer',
       },
       activite: {
         jours,

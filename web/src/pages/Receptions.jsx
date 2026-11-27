@@ -83,7 +83,7 @@ function construireChaine(bon, pv, certificat) {
       faite: Boolean(pv),
       note: pv ? `${texte(pv.numero)} · ${texte(pv.signataire_nom)}` : null,
       manque:
-        "Aucun procès-verbal : la commission doit contrôler la livraison ligne par ligne, relever les écarts, puis signer.",
+        "Aucun procès-verbal lisible : la commission doit contrôler la livraison ligne par ligne, relever les écarts, puis signer.",
       acteur: ACTEURS.pv,
       regle: 'Qui a émis le bon de commande ne signe pas ce procès-verbal',
     },
@@ -94,7 +94,7 @@ function construireChaine(bon, pv, certificat) {
       note: certificat ? `${texte(certificat.numero)} · ${texte(certificat.signataire_nom)}` : null,
       manque: pv
         ? "Le procès-verbal est signé : le comptable des matières doit prendre les biens en charge à l'inventaire."
-        : "Sans procès-verbal de réception, le certificat ne peut pas être émis — RG-010.",
+        : "Sans procès-verbal de réception lisible, le certificat ne peut pas être émis — RG-010.",
       acteur: ACTEURS.certificat,
       regle: 'RG-010 — le certificat ne s’émet qu’après le PV · qui réceptionne ne certifie pas',
     },
@@ -249,7 +249,7 @@ export default function Receptions() {
         cle: 'montant',
         titre: 'Montant',
         nombre: true,
-        largeur: '11%',
+        largeur: '13%',
         valeur: (b) => Number(b.montant ?? 0),
         rendu: (b) => montantCourt(b.montant),
       },
@@ -270,7 +270,7 @@ export default function Receptions() {
       {
         cle: 'manque',
         titre: 'Ce qui manque, et qui doit agir',
-        largeur: '34%',
+        largeur: '32%',
         triable: false,
         rendu: (b) =>
           b.chaine.manque ? (
@@ -393,6 +393,15 @@ export default function Receptions() {
           }
           pied={`${nombre(filtrees.length)} bon(s) affiché(s) sur ${nombre(resume.total)} · les lignes signalées ont été livrées en partie`}
         />
+        <p className="marge-dessus-3 texte-note largeur-propos">
+          La chaîne est reconstituée à partir de trois listes que le serveur ne
+          restreint pas de la même façon : les bons de commande vous sont tous
+          servis, tandis que les procès-verbaux et les certificats sont filtrés
+          par structure — RG-017. Une étape peut donc apparaître « à faire »
+          alors qu'elle est seulement hors de votre périmètre de lecture.
+          Ouvrez la fiche pour voir ce qui est lisible, et changez de profil
+          pour voir le même bon avec d'autres droits.
+        </p>
       </Etat>
 
       {bonOuvert ? (
@@ -482,20 +491,22 @@ function FicheChaine({ bon, surFermeture, recharger }) {
   const raisonPriseEnCharge = !aLeRole('comptable_matieres')
     ? `Votre profil ne prend pas en charge à l'inventaire. ${ACTEURS.certificat}.`
     : !pv
-      ? "Le certificat de prise en charge ne s'émet qu'après un procès-verbal de réception — RG-010."
+      ? "Aucun procès-verbal de réception n'est lisible ici : le certificat ne s'émet qu'après lui — RG-010."
       : certificat
         ? `Le certificat ${texte(certificat.numero)} existe déjà : un document figé ne se refait pas — RG-019.`
         : aSigneLePv
           ? "Vous avez signé le procès-verbal : qui réceptionne ne valide pas sa propre réception."
           : null
 
+  // Le comptable public est un rôle central, mais sa portée de lecture ne l'est
+  // pas : il ne voit pas les certificats des autres structures. On ne lui
+  // interdit donc pas une action que le serveur, lui, autoriserait — RG-011
+  // reste tenue au serveur, qui refuse s'il n'y a pas de certificat.
   const raisonPaiement = !aLeRole('comptable_public')
     ? `Votre profil ne marque pas le paiement. ${ACTEURS.paiement}.`
-    : !certificat
-      ? "Aucun paiement n'est marqué possible sans certificat de prise en charge — RG-011."
-      : ['payable', 'paye'].includes(bon.statut)
-        ? `Le paiement est déjà possible : ce bon est au statut « ${libelle(bon.statut)} ».`
-        : null
+    : ['payable', 'paye'].includes(bon.statut)
+      ? `Le paiement est déjà possible : ce bon est au statut « ${libelle(bon.statut)} ».`
+      : null
 
   return (
     <>
@@ -619,9 +630,11 @@ function FicheChaine({ bon, surFermeture, recharger }) {
           </>
         ) : (
           <p className="marge-dessus-3 largeur-propos texte-faible">
-            Aucun procès-verbal n'est établi pour ce bon de commande. Tant qu'il
-            manque, ni la prise en charge ni le paiement ne sont possibles —
-            RG-010, RG-011.
+            Aucun procès-verbal n'est lisible pour ce bon de commande dans votre
+            périmètre. Tant qu'il manque, ni la prise en charge ni le paiement ne
+            sont possibles — RG-010, RG-011. S'il relève d'une autre structure,
+            il existe peut-être sans vous être servi : une structure ne lit que
+            ses propres données — RG-017.
           </p>
         )}
 
@@ -647,7 +660,7 @@ function FicheChaine({ bon, surFermeture, recharger }) {
           </div>
         ) : (
           <p className="marge-dessus-3 largeur-propos texte-faible">
-            Aucun certificat. {pv
+            Aucun certificat lisible dans votre périmètre. {pv
               ? "Le procès-verbal est signé : la prise en charge à l'inventaire par le comptable des matières ouvre le paiement."
               : "Il ne peut pas être émis avant le procès-verbal de réception — RG-010."}
           </p>
@@ -912,6 +925,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
   return (
     <Dialogue
       ouvert
+      large
       titre="Contrôler la livraison, puis signer le procès-verbal"
       surFermeture={surFermeture}
       pied={
@@ -971,6 +985,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
               triable: false,
               rendu: (l) => (
                 <Champ
+                  enCellule
                   libelle="Désignation"
                   valeur={l.designation}
                   surChangement={(v) => modifier(l._index, 'designation', v)}
@@ -985,6 +1000,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
               triable: false,
               rendu: (l) => (
                 <Champ
+                  enCellule
                   libelle="Commandée"
                   type="number"
                   min={0}
@@ -1001,6 +1017,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
               triable: false,
               rendu: (l) => (
                 <Champ
+                  enCellule
                   libelle="Livrée"
                   type="number"
                   min={0}
@@ -1017,6 +1034,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
               triable: false,
               rendu: (l) => (
                 <Champ
+                  enCellule
                   libelle="Reçue"
                   type="number"
                   min={0}
@@ -1041,6 +1059,7 @@ function DialogueReception({ bon, source, surFermeture, surSucces }) {
               triable: false,
               rendu: (l) => (
                 <Champ
+                  enCellule
                   libelle="État"
                   type="choix"
                   valeur={l.conforme === false ? 'non' : 'oui'}
@@ -1298,9 +1317,16 @@ function DialoguePaiement({ bon, surFermeture, surSucces }) {
     >
       <p className="texte-faible sans-marge largeur-propos">
         Le comptable public contrôle la prise en charge et marque le paiement
-        possible. Le certificat {texte(bon.certificat?.numero)} en est le seul
-        titre — RG-011. L'action est journalisée avant d'être confirmée — RG-020.
+        possible. Le certificat de prise en charge en est le seul titre —
+        RG-011. L'action est journalisée avant d'être confirmée — RG-020.
       </p>
+      {bon.certificat ? null : (
+        <p className="texte-note largeur-propos">
+          Aucun certificat n'est lisible pour ce bon dans votre périmètre : il
+          relève peut-être d'une autre structure — RG-017. Le serveur vérifiera
+          RG-011 et refusera s'il n'en existe pas.
+        </p>
+      )}
       <div className="marge-dessus-3">
         <Definitions
           entrees={[

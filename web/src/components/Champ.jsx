@@ -20,6 +20,7 @@ export default function Champ({
   min,
   max,
   pas,
+  enCellule = false,
 }) {
   const id = useId()
   const idAide = `${id}-aide`
@@ -38,7 +39,7 @@ export default function Champ({
   }
 
   return (
-    <div className={clsx('champ', erreur && 'est-en-erreur')}>
+    <div className={clsx('champ', erreur && 'est-en-erreur', enCellule && 'est-en-cellule')}>
       <label className="champ-libelle" htmlFor={id}>
         {libelle}
         {obligatoire ? (
