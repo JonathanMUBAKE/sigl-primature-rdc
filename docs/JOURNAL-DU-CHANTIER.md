@@ -483,3 +483,39 @@ qu'en collant un identifiant technique dans le champ de secours — lequel, une 
 « Agent b0639bad » au lieu du nom. Ce n'est pas un défaut de ce lot, et je ne l'ai pas élargi pour le
 corriger : décider qui a le droit de lister les agents est une question de droits, pas une couture.
 Mais c'est exactement ce sur quoi une démonstration devant la Primature trébuchera.
+
+### Deux arbitrages rendus en cours de lot
+
+Le serveur me les a posés plutôt que de les inventer, ce qui était juste. Les voici tranchés.
+
+**7. La saisine des domaines est refusée tant qu'une demande de réemploi attend une réponse.**
+RG-028 disait « aucune saisine sans offre close ». Prise à la lettre, elle laissait saisir les
+domaines alors qu'une structure avait demandé le bien : on réformait ce que quelqu'un voulait
+reprendre — précisément le gaspillage que ce lot existe pour empêcher —, et la structure demandeuse
+restait sans réponse pour toujours. L'esprit de la règle n'est pas « une offre close » mais **« le
+réemploi a été réellement cherché »**, et une demande sans réponse prouve le contraire. La règle est
+donc étendue, et son message nomme les structures qui attendent et ce qu'il faut faire. Conséquence
+assumée : l'ordre du circuit change, il faut écarter les demandes **avant** de saisir, et non après.
+
+**8. Le flux temps réel des offres de réemploi échappe au filtrage par structure.** La table est
+lisible de toutes les structures parce qu'elle publie ; un flux qui filtre là où la table ne filtre
+pas est la même incohérence que celle qui nous a déjà coûté trois fois. Une offre qu'on ne découvre
+qu'en rechargeant une liste n'est pas publiée, elle est entreposée. L'exception est **nommée, bornée
+au seul objet `reemploi`, et commentée** — jamais un filtre qu'on croirait oublié. Hors du périmètre
+d'origine, la charge de l'événement est réduite par **liste d'autorisation** à ce que l'offre publie :
+une liste d'interdiction aurait laissé passer le prochain champ ajouté sans y penser. Et un essai
+vérifie qu'un événement `reforme` ne suit pas l'exception, sur les huit objets du SIGL : c'est lui qui
+l'empêchera de s'élargir toute seule un jour.
+
+### Ce qui est prouvé, et ce qui ne l'est pas
+
+Prouvé sur le serveur réel, pas seulement par les essais : le refus de RG-028 nommant les deux
+structures qui attendent, les dates rendues en français dans les verdicts, et une demande de réemploi
+déposée par la CAID sur un bien offert par la CGIG, retrouvée en base.
+
+**Deux limites dites franchement.** Le jeu de démonstration ne contient aucun dossier saisi avec une
+demande pendante : la situation que RG-028 refuse n'est pas montrable par les données seules — je
+l'ai fabriquée à la main sur la base locale pour la vérifier, en clôturant l'offre du dossier
+DR-2026-00005, et `npm run seed` rend au jeu son état d'origine. Et l'étape 5 comme l'étape 6 du
+chemin de fer s'affichent « en cours » en même temps sur un dossier offert : deux chemins restent
+ouverts, c'est exact, mais cela se lit mal.
