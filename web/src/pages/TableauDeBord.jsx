@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import Page from '../components/Page.jsx'
 import Bento, { Bloc } from '../components/Bento.jsx'
 import Chiffre, { RangeeChiffres } from '../components/Chiffre.jsx'
+import BandeDeCommande from '../components/BandeDeCommande.jsx'
 import Tableau from '../components/Tableau.jsx'
 import Pastille from '../components/Pastille.jsx'
 import Bouton from '../components/Bouton.jsx'
@@ -10,7 +11,7 @@ import { Chargement, Erreur } from '../components/Vide.jsx'
 import api from '../lib/api.js'
 import { useRequete } from '../lib/requete.js'
 import { useAgent } from '../lib/agent.jsx'
-import { useMarquage, useRafraichissementVivant } from '../lib/flux.js'
+import { useMarquage, useRafraichissementVivant, useSujetsVivants } from '../lib/flux.js'
 import { lienUi } from '../lib/liens.js'
 import {
   date,
@@ -60,6 +61,32 @@ function ecranDeLaLigne(ligne) {
   if (ligne?.objet === 'etat_besoin' && ligne.id) return `/besoins/${ligne.id}`
   return null
 }
+/*
+  De quel sujet un chiffre relève-t-il ? On ne le devine pas : on le lit dans le
+  lien que **le serveur** attache au chiffre. `/api/besoins?statut=vise` relève
+  des besoins, `/api/bons-commande?...` des achats. L'écran ne décide rien ; il
+  traduit une famille d'API en sujet du flux, pour faire battre la bonne cellule
+  quand le temps réel annonce un changement.
+*/
+const SUJET_DE_LA_FAMILLE = {
+  besoins: 'besoins',
+  biens: 'patrimoine',
+  stocks: 'stocks',
+  alertes: 'alertes',
+  'dossiers-achat': 'achats',
+  'bons-commande': 'achats',
+  receptions: 'achats',
+  documents: 'documents',
+  'offres-reemploi': 'reemploi',
+  'demandes-reemploi': 'reemploi',
+}
+
+function sujetDuChiffre(lien) {
+  if (typeof lien !== 'string' || !lien.startsWith('/api/')) return null
+  const famille = lien.slice('/api/'.length).split('?')[0].split('/')[0]
+  return SUJET_DE_LA_FAMILLE[famille] ?? null
+}
+
 export default function TableauDeBord() {
   const { agent } = useAgent()
   const navigue = useNavigate()
@@ -67,22 +94,22 @@ export default function TableauDeBord() {
     agent?.id,
   ])
   const { marquer, estMarque } = useMarquage()
-  useRafraichissementVivant(
-    [
-      'tableau-de-bord',
-      'besoins',
-      'patrimoine',
-      'stocks',
-      'alertes',
-      'achats',
-      'reforme',
-      'reemploi',
-    ],
-    () => {
-      recharger()
-    },
-    marquer,
-  )
+  const SUJETS_SUIVIS = [
+    'tableau-de-bord',
+    'besoins',
+    'patrimoine',
+    'stocks',
+    'alertes',
+    'achats',
+    'documents',
+    'reforme',
+    'reemploi',
+  ]
+  // Deux lectures du même flux, et c'est voulu : l'une rafraîchit et éclaire la
+  // ligne touchée dans la file, l'autre fait battre la cellule du sujet dans la
+  // bande. Un indicateur n'a pas d'objet à éclairer — il compte.
+  useRafraichissementVivant(SUJETS_SUIVIS, () => { recharger() }, marquer)
+  const { estVif } = useSujetsVivants(SUJETS_SUIVIS)
 
   if (chargement) {
     return (
@@ -144,6 +171,34 @@ export default function TableauDeBord() {
     t.horodatage ? `actualisé le ${direHorodatage(t.horodatage)}` : null,
   ].filter(Boolean)
 
+  /*
+    Les cellules de la bande, dans l'ordre que le serveur rend — jamais
+    réordonnées, jamais recalculées (contrat § 3).
+
+    RG-039 : un chiffre que le profil n'a pas le droit de lire vaut « — » et
+    porte son motif ; il ne mène nulle part, puisque le clic se solderait par un
+    second refus. RG-038 : les autres ne sont cliquables que si `lienUi` sait
+    les traduire en écran qui existe.
+
+    `nul` n'est pas une mise en forme gratuite : une absence et une mesure ne se
+    lisent pas de la même façon, et les rendre identiques était le défaut de la
+    rangée précédente.
+  */
+  const cellules = tete.map((c, rang) => {
+    const indisponible = c.disponible === false
+    const estMontant = /\(FC\)\s*$/.test(c.libelle ?? '')
+    const sujet = indisponible ? null : sujetDuChiffre(c.lien)
+    return {
+      cle: `${rang}-${c.libelle}`,
+      libelle: texte(c.libelle).replace(' (FC)', ''),
+      valeur: indisponible ? '—' : estMontant ? montantCourt(c.valeur) : nombre(c.valeur),
+      appui: (indisponible ? c.motif : c.appui) ?? null,
+      vers: indisponible ? null : lienUi(c.lien),
+      nul: !indisponible && Number(c.valeur) === 0,
+      vif: sujet ? estVif(sujet) : false,
+    }
+  })
+
   return (
     <Page
       titre="Poste de commande"
@@ -154,43 +209,23 @@ export default function TableauDeBord() {
         </Bouton>
       }
     >
-      {tete.length > 0 ? (
-        <Bento>
-          <Bloc large={12}>
-            <RangeeChiffres>
-              {tete.map((c, rang) => {
-                /*
-                  RG-039 : une donnée que le profil n'a pas le droit de lire se
-                  dit « — » avec son motif en appui. Elle ne mène pas non plus à
-                  la liste qui la compose : ce serait un refus de plus au clic.
-                  Le champ absent vaut « lisible », puisque seul `false` dit
-                  l'interdiction.
-                */
-                const indisponible = c.disponible === false
-                /*
-                  Un libellé qui annonce « (FC) » porte un montant, non un
-                  décompte : il se lit en francs congolais. Les six chiffres
-                  d'action du contrat sont des décomptes ; ce garde-fou sert tout
-                  autre chiffre que le serveur libellerait ainsi.
-                */
-                const estMontant = /\(FC\)\s*$/.test(c.libelle ?? '')
-                return (
-                  <Chiffre
-                    key={`${rang}-${c.libelle}`}
-                    valeur={
-                      indisponible ? '—' : estMontant ? montantCourt(c.valeur) : c.valeur
-                    }
-                    brut={indisponible || estMontant}
-                    libelle={texte(c.libelle).replace(' (FC)', '')}
-                    appui={(indisponible ? c.motif : c.appui) ?? undefined}
-                    vers={indisponible ? undefined : lienUi(c.lien)}
-                  />
-                )
-              })}
-            </RangeeChiffres>
-          </Bloc>
-        </Bento>
-      ) : null}
+      <BandeDeCommande
+        cellules={cellules}
+        enTete={
+          attente.plus_ancienne_jours > 7 ? (
+            /*
+              Le fait le plus grave de l'écran, en toutes lettres et en tête.
+              Il était jusqu'ici en gris clair, en petit, à droite d'un titre de
+              section : une décision oubliée depuis quatre cents jours ne se
+              signale pas en note de bas de page. Aucun lien : la file qui le
+              détaille est juste au-dessous.
+            */
+            <span className="bande-urgence">
+              {`Une décision attend depuis ${jours(attente.plus_ancienne_jours)}.`}
+            </span>
+          ) : null
+        }
+      />
 
       <Bento>
         <Bloc

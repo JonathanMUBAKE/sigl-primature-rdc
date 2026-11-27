@@ -380,3 +380,25 @@ export function useRafraichissementVivant(sujets, recharger, marquer) {
     recharger?.()
   })
 }
+
+/*
+  Quels sujets viennent de bouger, pour que l'écran le montre.
+
+  `useRafraichissementVivant` marque l'**objet** touché, ce qui convient à une
+  liste : la ligne concernée s'éclaire. Un indicateur, lui, n'a pas d'objet — il
+  compte. Ce qu'il doit faire battre, c'est son sujet : « besoins », « stocks »,
+  « achats ». Sans cela un chiffre se met à jour sans qu'on le voie se mettre à
+  jour, et un écran vivant ne se distingue pas d'un écran figé.
+
+  Même durée et même animation que le marquage des lignes : un seul langage
+  pour dire « ceci vient de changer ».
+*/
+export function useSujetsVivants(sujets, surChangement, duree = 2000) {
+  const { marquer, estMarque } = useMarquage(duree)
+  useFlux(sujets, (evenement) => {
+    const portes = evenement?.sujets ?? [evenement?.sujet]
+    for (const sujet of portes) if (sujet) marquer(String(sujet))
+    surChangement?.(evenement)
+  })
+  return { estVif: estMarque }
+}

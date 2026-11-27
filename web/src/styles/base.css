@@ -1749,3 +1749,142 @@ a.chiffre:hover {
   display: flex;
   gap: var(--espace-2);
 }
+
+/* ------------------------------------------------------------------ */
+/* Bande du poste de commande — un instrument, pas une vitrine         */
+/* ------------------------------------------------------------------ */
+
+/*
+  Un pixel au-dessus de la bande : quand il sort du champ, la bande est
+  détachée. Rien d'autre ne le dit sans écouter chaque pixel de défilement.
+*/
+.bande-sentinelle {
+  height: 1px;
+  margin-bottom: -1px;
+}
+
+.bande-commande {
+  position: sticky;
+  /* Au ras du haut, et non sous le bandeau : celui-ci défile avec la page, et
+     s'arrêter à sa hauteur laissait la file passer dans la bande vide qu'il
+     venait de libérer. Vérifié au navigateur, pas supposé. */
+  top: 0;
+  z-index: 2;
+  background: var(--fond);
+  border: var(--filet) solid var(--ligne);
+  border-radius: var(--angle-carte);
+  margin-bottom: var(--espace-5);
+  overflow: hidden;
+  transition: border-color var(--duree-panneau) var(--courbe);
+}
+
+/*
+  Détachée, la bande passe devant la file. La charte ne porte aucune ombre :
+  le plan se dit par un filet qui s'affirme, ce qui suffit et reste sobre.
+*/
+.bande-commande.est-detachee {
+  border-color: var(--ligne-forte);
+}
+
+.bande-entete {
+  padding: var(--espace-3) var(--espace-4);
+  border-bottom: var(--filet) solid var(--ligne);
+  font-size: var(--texte-s);
+  color: var(--encre-douce);
+}
+
+/*
+  Les filets viennent de l'écart, pas des bordures : la grille laisse un pixel
+  de fond entre les cellules, et ce fond EST le filet. C'est ce qui le rend
+  juste quand la rangée se replie — une bordure gauche laissait deux rangées se
+  toucher sans séparation, et la lecture s'y perdait.
+*/
+.bande-cellules {
+  display: grid;
+  /*
+    Trois colonnes, et non `auto-fit` : les six chiffres du contrat forment
+    alors deux rangées pleines. En `auto-fit`, une largeur d'écran donnait cinq
+    cellules et une orpheline, et le filet de fond peignait le vide à sa droite
+    comme s'il y avait une septième cellule effacée.
+  */
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--filet);
+  background: var(--ligne);
+}
+
+@media (max-width: 1100px) {
+  .bande-cellules {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .bande-cellules {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bande-cellule {
+  display: block;
+  padding: var(--espace-4);
+  background: var(--fond);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--duree-etat) var(--courbe);
+}
+
+/* Opaque, et non un voile : la cellule couvre le filet, pas l'inverse. */
+a.bande-cellule:hover {
+  background: var(--fond-doux);
+  text-decoration: none;
+}
+
+/* L'étiquette d'abord : l'ordre de lecture dit qui commande. */
+.bande-libelle {
+  display: block;
+  font-size: var(--texte-xs);
+  font-weight: var(--graisse-appuyee);
+  text-transform: uppercase;
+  letter-spacing: var(--interlettrage-capitales);
+  color: var(--encre-douce);
+}
+
+.bande-valeur {
+  display: block;
+  margin-top: var(--espace-2);
+  font-size: var(--texte-titre);
+  font-weight: var(--graisse-appuyee);
+  line-height: var(--hauteur-serree);
+  color: var(--encre);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Une absence se constate, elle ne se mesure pas. */
+.bande-valeur.est-nulle {
+  color: var(--encre-faible);
+  font-weight: var(--graisse);
+}
+
+.bande-appui {
+  display: block;
+  margin-top: var(--espace-1);
+  font-size: var(--texte-xs);
+  color: var(--encre-faible);
+}
+
+/* La ligne de tête : le fait le plus grave, en toutes lettres. */
+.bande-urgence {
+  color: var(--rouge-texte);
+  font-weight: var(--graisse-appuyee);
+}
+
+.bande-urgence-lien {
+  color: inherit;
+}
+
+@media (max-width: 1000px) {
+  .bande-commande {
+    position: static;
+  }
+}
