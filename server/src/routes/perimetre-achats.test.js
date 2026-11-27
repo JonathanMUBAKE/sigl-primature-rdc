@@ -33,7 +33,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { CLE_PRIVILEGE, SESAME_PRIVILEGE, enPrivilegie, fermer } from '../db.js';
+import { CLE_PRIVILEGE, SESAME_PRIVILEGE, enPrivilegie, fermer, transaction } from '../db.js';
 import { construireApp } from '../app.js';
 import { arreterEcoute } from './_flux.js';
 
@@ -356,5 +356,100 @@ describe("Le périmètre des dossiers d'achat", () => {
       "l'écran ne doit plus annoncer « Sans état de besoin rattaché » pour un dossier qui en a un",
     );
     assert.ok(vu.structure_code, 'la structure concernée doit être nommée');
+  });
+});
+
+// --- Le cloisonnement tenu par la base, pas par la route -----------------
+//
+// LA DÉCISION. `dossier_achat` et `bon_commande` restaient hors de
+// `tables_cloisonnees` : leur isolation ne tenait qu'au code des routes, et deux
+// oublis successifs l'ont prouvé coûteux. Elles y entrent. La lecture suit
+// `sigl_lecture_permise`, portée transversale du comptable public comprise ;
+// l'écriture suit un prédicat propre à la chaîne d'achat, qui ajoute à
+// `sigl_ecriture_permise` le périmètre **intégré** du comptable public — car
+// marquer un bon payable est un acte de la chaîne de la dépense de la
+// Primature, et non une écriture dans la comptabilité des matières d'une
+// personnalité juridique distincte. RG-018 tient donc entière : un
+// établissement `autonome` n'est jamais écrit d'en haut, chaîne d'achat
+// comprise, et ces essais le vérifient en base.
+
+/** Ce que cet agent lit de la chaîne d'achat, en base, sous le rôle métier. */
+async function chaineVueEnBase(agent, { porteeIntegre = false } = {}) {
+  return transaction(
+    { agentId: agent.id, structureId: agent.structure_id, porteeIntegre },
+    async (bd) => ({
+      dossiers: (await bd.tous(
+        'select numero from dossier_achat where numero like $1', [`${MARQUE}%`],
+      )).map((d) => d.numero),
+      bons: (await bd.tous(
+        'select numero from bon_commande where numero like $1', [`${MARQUE}%`],
+      )).map((b) => b.numero),
+    }),
+  );
+}
+
+describe("La base tient le cloisonnement de la chaîne d'achat", () => {
+  it("un chef de structure ne lit en base aucun dossier ni bon d'une autre structure", async () => {
+    const vu = await chaineVueEnBase(chefSgg);
+    assert.deepEqual(
+      vu.dossiers, [],
+      "même si une route oubliait son filtre, la base ne doit rien rendre au SGG",
+    );
+    assert.deepEqual(vu.bons, [], 'de même pour les bons de commande');
+  });
+
+  it("le comptable public lit en base le périmètre intégré, jamais l'autonome", async () => {
+    const vu = await chaineVueEnBase(comptablePublic, { porteeIntegre: true });
+    assert.ok(
+      vu.dossiers.includes(cas.integreAvecCertificat.dossier.numero),
+      'sa portée transversale doit porter jusque dans la base',
+    );
+    assert.ok(
+      !vu.dossiers.includes(cas.autonome.dossier.numero),
+      "elle s'arrête à la frontière juridique, et la base la tient",
+    );
+    assert.ok(vu.bons.includes(cas.integreAvecCertificat.numero));
+    assert.ok(!vu.bons.includes(cas.autonome.numero));
+  });
+
+  it("RG-018 en base : il n'écrit pas un bon d'un établissement autonome", async () => {
+    // L'écriture ne lève pas : elle ne trouve simplement aucune ligne à toucher.
+    // C'est le comportement voulu — la politique de sécurité au niveau des
+    // lignes rend la ligne invisible, donc inaltérable.
+    await transaction(
+      {
+        agentId: comptablePublic.id,
+        structureId: comptablePublic.structure_id,
+        porteeIntegre: true,
+      },
+      (bd) => bd.requete(
+        "update bon_commande set statut = 'payable', paye_le = now() where id = $1",
+        [cas.autonome.id],
+      ),
+    );
+    await enPrivilegie(async (bd) => {
+      const bon = await bd.un('select statut, paye_le from bon_commande where id = $1', [cas.autonome.id]);
+      assert.equal(bon.statut, 'receptionne', "le bon de l'ARMP n'a pas bougé");
+      assert.equal(bon.paye_le, null);
+    });
+  });
+
+  it("mais il écrit bien dans le périmètre intégré, hors de sa portée propre", async () => {
+    // C'est la contrepartie de la décision : sans cela, le comptable public ne
+    // pourrait marquer payable aucun bon hors du Secrétariat général, et la
+    // chaîne de la commande au paiement resterait rompue pour l'institution.
+    await transaction(
+      {
+        agentId: comptablePublic.id,
+        structureId: comptablePublic.structure_id,
+        porteeIntegre: true,
+      },
+      (bd) => bd.requete(
+        'update bon_commande set livre_le = livre_le where id = $1',
+        [cas.integreSansCertificat.id],
+      ),
+    );
+    const vu = await chaineVueEnBase(comptablePublic, { porteeIntegre: true });
+    assert.ok(vu.bons.includes(cas.integreSansCertificat.numero));
   });
 });

@@ -174,3 +174,73 @@ Trouvé en ouvrant l'écran dans le navigateur, pas par les essais : l'agent de 
 est directrice à l'ARMP, un établissement autonome, et elle voyait les douze dossiers de toute la
 Primature. Quatre essais ajoutés avant la correction (`perimetre-achats.test.js`), trois rouges.
 143 essais, 143 passent.
+
+---
+
+## 27 novembre 2026 — Trois décisions de conception, tranchées et assumées
+
+Ces trois questions étaient marquées « à trancher par la conception » et laissées à ChatGPT sur
+l'issue #1. Vérification faite, **ChatGPT n'a jamais écrit sur ce dépôt** : les six commentaires de
+l'issue sont de moi, postés sous le compte du client faute d'autre identité ; dix-sept commits sur
+dix-huit sont de moi ; aucune branche, aucune *pull request*, aucune issue d'un autre auteur. Un
+dépôt public est lisible par lui, mais il ne peut rien y écrire et ne se réveille que lorsqu'on lui
+parle. Les trois questions n'étaient donc pas déléguées : elles étaient en attente, pendant que le
+code avançait en les supposant résolues. C'était une erreur de conduite de ma part.
+
+Le client a tranché le 27 novembre : décider seul. Ces trois décisions sont donc les miennes, et
+voici sur quoi elles reposent. Que l'institution les renverse ne coûtera rien : chacune est posée à
+un seul endroit, nommé ci-dessous.
+
+**1. Le périmètre du comptable public est transversal, et s'arrête à la frontière juridique.**
+
+Il lit l'ensemble des structures de régime `integre`, pas seulement celle où se trouve son bureau. Le
+fondement n'est pas pratique mais juridique : il n'est pas un agent de la structure, il est mis à
+disposition par le ministère du Budget ou des Finances, et le décret 13/050 art. 137 lui confie un
+contrôle en matière de dépenses **et** en matière de patrimoine. Sa fonction porte sur l'institution.
+Borner sa lecture à sa cellule rompait la chaîne de la commande au paiement : il voyait les bons de
+toute la Primature et aucun certificat de prise en charge hors de sa structure, et RG-011 lui opposait
+l'absence d'une pièce qui existait.
+
+Elle s'arrête à un établissement public autonome — ARMP, APCSC, ARC-CSU, Caisse Nationale de
+Péréquation. Celui-ci a sa personnalité juridique, son budget et **son propre comptable public** : sa
+comptabilité des matières ne se lit pas d'en haut. Posé dans
+`supabase/migrations/20261127030000_portee_comptable_public.sql`.
+
+**2. Un dossier d'achat ouvert sans état de besoin relève de la structure de l'agent qui l'ouvre.**
+
+C'est un achat du niveau central. L'alternative aurait été un « achat hors structure », sans
+rattachement : je l'ai écartée, parce qu'une dépense sans structure responsable n'a personne à qui
+l'imputer, et qu'un contrôle de périmètre sur une valeur absente ne contrôle rien — c'est exactement
+la faute corrigée le même jour. Posé à l'écriture, dans `server/src/routes/achats.js`.
+
+**3. `dossier_achat` et `bon_commande` entrent dans le cloisonnement tenu par la base.**
+
+C'était la plus ouverte des trois, et celle qui demandait du code. Ces deux tables portent
+l'engagement de la dépense publique et étaient les seules de la chaîne à rester hors de
+`tables_cloisonnees` : leur isolation ne tenait qu'au code des routes. Deux oublis successifs, le
+même jour, ont montré ce que cela coûte. Une règle qui ne tient qu'à la vigilance du code finit par
+céder ; celle-ci descend dans la base, comme le veut l'ADR-001.
+
+J'avais relevé l'objection moi-même : une ligne cloisonnée devient invisible, donc la route répond
+« introuvable » au lieu du refus motivé « ce bon relève de l'ARMP, qui tient ses propres écritures ».
+Un « introuvable » se lit comme une panne du logiciel. D'où la troisième voie, retenue :
+`sigl_structure_rattachement()` rend **l'identifiant de structure et rien d'autre** — une donnée que
+tout agent lit déjà dans l'organigramme — et la route conserve son 403 / RG-017 nommé.
+
+Une difficulté réelle est apparue en cours de route, et elle valait la peine d'être tranchée plutôt
+que contournée : appliquée telle quelle, la politique d'écriture aurait interdit au comptable public
+de marquer payable un bon hors de sa portée propre, c'est-à-dire aurait rétabli le défaut d'origine.
+`sigl_ecriture_chaine_achat()` ajoute donc le périmètre **intégré** du comptable public, et lui seul.
+La justification n'est pas de commodité : marquer un bon payable est un acte de la chaîne de la
+dépense de la Primature, dont il est le comptable, et non une écriture dans la comptabilité des
+matières d'une personnalité juridique distincte — ce que RG-018 protège. La branche ajoutée exige
+`regime = 'integre'`, donc **RG-018 tient entière**, chaîne d'achat comprise.
+
+Quatre essais le prouvent en base, sous le rôle non privilégié, et non à travers les routes
+(`perimetre-achats.test.js`, « La base tient le cloisonnement de la chaîne d'achat »). Le troisième
+est le plus parlant : avant cette migration, le comptable public **pouvait** modifier en base le bon
+de l'ARMP, et seule la route l'en empêchait. Migration
+`supabase/migrations/20261127050000_cloisonner_chaine_achat.sql`. 147 essais, 147 passent.
+
+Vérifié au navigateur : la logistique centrale voit ses douze dossiers avec leur état de besoin et
+leur structure — « EB/2026/0015 · CAID » là où l'écran annonçait « Sans état de besoin rattaché ».
