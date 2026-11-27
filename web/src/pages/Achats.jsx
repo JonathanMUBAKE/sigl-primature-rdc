@@ -621,6 +621,8 @@ function OuvertureDeDossier({ surFermeture, surSucces }) {
   return (
     <Dialogue
       ouvert
+      // Le refus pour fractionnement porte un tableau : il lui faut la place.
+      large={erreur?.code === 'RG-008'}
       titre="Ouvrir un dossier d'achat"
       surFermeture={surFermeture}
       pied={

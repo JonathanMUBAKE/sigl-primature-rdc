@@ -264,6 +264,7 @@ export default function Stocks() {
           colonnes={colonnes}
           lignes={lignes}
           cleDeLigne={(l, i) => l.id ?? `${l.categorie_code}-${i}`}
+          surClic={(l) => (l.id ? navigue(`/stocks/${l.id}${window.location.search}`) : undefined)}
           ligneChoisie={(l) => l.id === articleOuvert}
           ligneSignalee={(l) => ['rupture', 'critique', 'sous_critique'].includes(l.criticite)}
           ligneMarquee={(l) => estMarque(l.id)}
@@ -274,7 +275,7 @@ export default function Stocks() {
               ? 'Aucun article ne répond à ces critères. Retirez un filtre pour voir le reste.'
               : "Aucun article n'est suivi en stock pour votre périmètre. Une structure ne lit que ses propres données — RG-017."
           }
-          pied={`${nombre(lignes.length)} article(s) affiché(s) sur ${nombre(total)}`}
+          pied={`${nombre(lignes.length)} article(s) affiché(s) sur ${nombre(total)} · ouvrez une ligne pour régler ses seuils`}
         />
       </Etat>
 
