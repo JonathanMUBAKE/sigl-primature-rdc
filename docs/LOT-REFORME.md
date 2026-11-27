@@ -60,13 +60,25 @@ tableau de bord, la liste des biens offerts par les autres et le bouton pour en 
 cette entrée est enfouie, l'étape 3 ne servira à rien et le lot aura manqué son seul objet
 économique.
 
-## Ce qui reste à trancher, et qui ne doit pas bloquer le lot
+## Ce qui a été tranché, et par qui
 
-- **La composition de la commission.** Combien de membres, désignés par qui, et quelle majorité pour
-  un avis. À défaut d'arrêté connu, le lot prendra : au moins trois membres, avis à la majorité des
-  membres ayant émis un avis, et la règle posée **à un seul endroit** pour être renversée à peu de
-  frais. À porter à l'institution.
-- **La durée de l'offre de réemploi.** Un paramètre horodaté dans `parametre`, jamais une constante —
-  comme les seuils de passation. Valeur de départ proposée : trente jours.
-- **La forme de la saisine.** Le PV de réforme suffit-il, ou l'administration des domaines attend-elle
-  un bordereau propre ? ⟨H⟩ À confirmer avant d'écrire le document.
+Les trois points laissés ouverts ci-dessus ont été tranchés par le chef de projet le 27 novembre
+2026, faute d'arbitre, et consignés dans `docs/JOURNAL-DU-CHANTIER.md`. Aucune décision ne reste
+en attente d'un arbitre absent — c'est la règle que `COLLABORATION.md` a tirée de l'issue #1.
+
+- **La composition de la commission** : au moins trois membres, avis à la majorité des membres ayant
+  émis un avis. Posée comme **paramètre horodaté** `reforme.commission_membres_minimum`, à un seul
+  endroit, pour être renversée à peu de frais. **Reste à porter à l'institution.**
+- **La durée de l'offre de réemploi** : paramètre horodaté `reemploi.duree_offre_jours`, valeur de
+  départ trente jours.
+- **La forme de la saisine** : le PV de réforme figé en tient lieu. La question de savoir si
+  l'administration des domaines attend un bordereau propre **n'est toujours pas confirmée** ⟨H⟩ ;
+  le jour où elle le sera, c'est un document de plus, lié au PV par `parent_document_id`, et non un
+  circuit à refaire.
+
+Trois décisions s'y sont ajoutées, que le contrat du lot n'avait pas vues venir et qui sont
+détaillées au journal : l'offre de réemploi est une **publication** qui porte sa propre copie de ce
+qu'elle publie et se lit de toutes les structures ; le réemploi ne circule qu'entre structures de
+régime `integre`, parce qu'au-delà c'est une cession ; et trancher une demande **prononce** le
+réemploi dans la même transaction. S'y ajoute **RG-033**, qui ferme le raccourci de la réforme
+directe.

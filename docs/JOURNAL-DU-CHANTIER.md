@@ -385,3 +385,65 @@ Deux limites connues, dites franchement : `mouvement.agent_id` reste nul quand u
 central arbitre un écart d'une structure intégrée, parce que la clé étrangère est composite — le
 journal, lui, nomme toujours l'auteur ; et aucune campagne n'existe dans un établissement autonome,
 donc les écrans d'un comptable de l'ARMP sont vides sur ce lot.
+
+## 27 novembre 2026 — Le circuit de réforme, et l'offre de réemploi
+
+Lot 4 du chantier. Le canal de l'issue #1 étant clos — il n'en était pas un —, le contrat du lot a
+été **gelé avant l'écriture du code**, par moi, puis remis tel quel aux deux agents : le serveur avec
+le schéma d'un côté, l'interface de l'autre, périmètres de fichiers disjoints. Les seuls bugs
+sérieux de la nuit précédente étaient venus de contrats mal accordés entre agents ; cette fois les
+noms de routes, de statuts et de champs étaient arrêtés d'avance, dans
+`docs/CONTRAT-TECHNIQUE.md`, section « Le circuit de réforme, et l'offre de réemploi ».
+
+### Ce que j'ai tranché seul, comme chef de projet
+
+**1. L'offre de réemploi est une publication, et c'est ce qui commande sa forme.** C'est la décision
+structurante du lot. L'étape de réemploi n'a d'objet que si *les autres* structures voient l'offre :
+sans elle, du matériel encore utilisable est réformé d'un côté et racheté de l'autre. Mais
+l'isolation du SIGL est tenue par la base, et une offre lisible seulement dans son périmètre serait
+une étape qui n'existe pas. J'ai donc décidé deux choses ensemble :
+
+- `offre_reemploi` est la **seule table du SIGL lisible de toute session positionnée**, quelle que
+  soit sa structure. Elle l'est parce qu'elle publie, et sa politique de lecture le dit en ces
+  termes plutôt que par un prédicat qu'on croirait oublié.
+- Elle **porte sa propre copie** de ce qu'elle publie — désignation, immatriculation, catégorie,
+  état, structure et site d'origine —, résolue à la publication. Elle ne joint pas `bien`, qui est
+  cloisonné. C'était le piège de la migration 040000 et celui du magasinier pris une troisième fois
+  par le même bout : une jointure externe vers une table cloisonnée rend `null` hors périmètre, et
+  une offre vidée de son contenu par une politique de sécurité correcte est une fonction métier
+  vidée. Accessoirement, la copie fige ce qui a été offert : ce qui a été publié reste ce qui a été
+  publié.
+
+**2. Le réemploi ne circule qu'entre structures de régime `integre`.** Faire entrer un bien de la
+Primature dans le patrimoine d'un établissement autonome n'est pas un réemploi mais une **cession**
+entre personnalités juridiques distinctes — que le SIGL ne prononce jamais (RG-016), et qui relève
+de l'administration des domaines. Une offre n'est donc pas demandable par un établissement autonome,
+et le refus le dit en ces termes au lieu de répondre « introuvable ». C'est RG-018 lue par son
+versant patrimonial.
+
+**3. Trancher une demande prononce le réemploi — un seul geste, une seule transaction.** Le contrat
+du lot distinguait l'étape 4 (la demande acceptée) de l'étape 5 (le réemploi prononcé). Je les ai
+fondues : accepter, c'est faire l'acte. Le mouvement de transfert, l'acte de transfert, la clôture
+de l'offre, l'écartement d'office des autres demandes et la clôture du dossier sans réforme sont
+indivisibles. Deux routes pour un acte unique en auraient laissé une moitié faite le jour où la
+seconde échoue — et un bien transféré sans acte, ou un acte sans transfert, est exactement ce qu'un
+inventaire ne pardonne pas.
+
+**4. RG-033 — l'état `reforme` ne s'atteint que par le circuit.** `POST /api/biens/:id/mouvements`
+n'accepte plus le type `reforme` : il renvoie RG-033 et nomme la route du circuit. Jusqu'ici un bien
+sortait du service sur la lassitude d'une seule structure, sans qu'aucune pièce ne prouve qu'il était
+inutilisable pour toute la Primature. Laisser le raccourci ouvert à côté du circuit, c'était le
+garder pour toujours : deux portes vers le même acte irréversible, et la mauvaise est la plus courte.
+
+**5. Les deux points laissés ouverts par le contrat du lot sont des paramètres horodatés**, posés
+chacun à un seul endroit pour être renversés à peu de frais quand l'institution tranchera :
+`reforme.commission_membres_minimum` (valeur de départ 3, avis à la majorité des membres ayant émis
+un avis) et `reemploi.duree_offre_jours` (valeur de départ 30). Comme les seuils de passation :
+jamais des constantes. La composition réelle de la commission reste **à porter à l'institution**, et
+la forme que l'administration des domaines attend pour la saisine n'est toujours pas confirmée — le
+PV de réforme figé en tient lieu en attendant.
+
+**6. L'avancement du circuit est dit par le serveur, pas déduit par l'écran.**
+`GET /api/dossiers-reforme/:id` rend les sept étapes du lot, chacune avec son état. Si l'écran
+recalculait l'avancement, il en détiendrait l'autorité et les deux jugements finiraient par diverger
+— c'est la règle déjà posée pour les chiffres, appliquée ici à un état de circuit.

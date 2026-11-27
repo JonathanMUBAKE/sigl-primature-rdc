@@ -199,6 +199,12 @@ Numérotées, testables, contrôlées côté serveur. Chaque règle a son test.
 | RG-025 | Un écart ne se tranche qu'après l'explication du détenteur | Décret 13/050 art. 122 |
 | RG-026 | Qui constate un écart ne le tranche pas | Séparation des fonctions |
 | RG-027 | Un rapprochement n'est clos qu'attesté par les deux parties | Décret 13/050 art. 123 |
+| RG-028 | Aucune saisine des domaines sans offre de réemploi close | Conception §13, LOT-REFORME |
+| RG-029 | Un bien sous offre de réemploi ouverte ne se réforme pas | Conception §13, LOT-REFORME |
+| RG-030 | Qui propose la réforme ne siège pas à la commission qui l'examine | Séparation des fonctions |
+| RG-031 | Un avis de commission exige un motif, favorable comme défavorable | Conception |
+| RG-032 | La décision des domaines s'enregistre et ne se prononce pas : elle porte son autorité, sa référence et sa date | Décret 13/050, RG-016 |
+| RG-033 | L'état `reforme` ne s'atteint que par le circuit de réforme, jamais par un mouvement direct | LOT-REFORME |
 
 ---
 
@@ -317,6 +323,91 @@ est portée par le détenteur du bien, un agent désigné `detenteur` ou le comp
 `trancher` est réservé au `comptable_matieres` et à la `logistique` ; seule une partie inscrite
 atteste un rapprochement, et pour sa seule qualité. Lecture : la garde `lecture()` ordinaire,
 portée RG-017.
+
+**Le circuit de réforme, et l'offre de réemploi** — décret 13/050 (la cession et la mise au rebut
+relèvent de l'administration des domaines), contrat du lot dans `docs/LOT-REFORME.md`. **Ce contrat
+est gelé : il est arrêté avant l'écriture du code, et les deux moitiés — serveur et interface — s'y
+tiennent sans en négocier les noms.**
+
+```
+GET    /api/dossiers-reforme                 ?statut=&structure=&q=&page=&parPage=
+POST   /api/dossiers-reforme                 { bien_id, motif }                    → statut `propose`
+GET    /api/dossiers-reforme/:id
+POST   /api/dossiers-reforme/:id/commission  { agent_id, qualite }                 RG-030
+POST   /api/dossiers-reforme/:id/avis        { avis, motif }                       RG-030, RG-031
+POST   /api/dossiers-reforme/:id/offrir      { duree_jours? }                      → offre ouverte
+POST   /api/dossiers-reforme/:id/saisir      { }                        RG-028 → pv_reforme figé
+POST   /api/dossiers-reforme/:id/decision    { autorite, reference, date_acte, suite }  RG-032
+
+GET    /api/offres-reemploi                  ?ouvertes=&structure_origine=&q=&page=&parPage=
+GET    /api/offres-reemploi/:id
+POST   /api/offres-reemploi/:id/demandes     { motif }                   par la structure demandeuse
+POST   /api/offres-reemploi/:id/clore        { }                         par la structure d'origine
+POST   /api/demandes-reemploi/:id/trancher   { decision, motif }         RG-029
+```
+
+- `statut` d'un **dossier de réforme** ∈ `propose`, `examine`, `rejete`, `offert`, `reemploye`,
+  `saisi`, `clos`. `rejete` : la commission a donné un avis défavorable, le bien reste en service.
+  `reemploye` : une autre structure a pris le bien, et **le dossier se clôt sans réforme**.
+  `saisi` : les domaines sont saisis, le PV est figé, on attend. `clos` : leur décision est
+  enregistrée.
+- `statut` d'une **offre** ∈ `ouverte`, `close`. `statut` d'une **demande** ∈ `deposee`, `acceptee`,
+  `ecartee`.
+- `avis` ∈ `favorable`, `defavorable`. `suite` d'une décision des domaines ∈ `cession`, `rebut`,
+  `refus`.
+- `GET /api/dossiers-reforme/:id` rend `{ dossier, bien, commission[], avis[], offre, demandes[],
+  decision, etapes }`. `etapes` est la liste des sept étapes du lot, chacune
+  `{ numero, libelle, etat, le, par_nom }` où `etat` ∈ `faite`, `courante`, `a_venir`, `sautee` :
+  **l'écran ne déduit pas l'avancement d'un circuit, le serveur le lui dit.**
+- Chaque action possible est accompagnée, comme pour l'inventaire, d'un
+  `{ possible, code, motif }` : `offre_possible`, `saisine_possible`, `decision_possible`. L'écran
+  grise son bouton et affiche le motif tel quel. Il ne rejuge aucune règle.
+- Temps réel : les événements portent `objet` **au singulier** — `reforme` (dossier, avis, décision)
+  et `reemploi` (offre, demande). Au singulier, parce qu'un flux silencieux ressemble à un flux
+  calme.
+
+**L'offre de réemploi est une publication, et c'est ce qui commande sa forme.** Son objet économique
+est que *les autres* structures la voient : si elle n'était lisible que dans son périmètre, l'étape
+n'existerait pas. Donc :
+
+1. `offre_reemploi` est **lisible de toute session positionnée**, quelle que soit sa structure. Elle
+   est la seule table du SIGL dans ce cas, et elle l'est parce qu'elle publie.
+2. Elle **porte sa propre copie** de ce qu'elle publie — désignation, immatriculation, catégorie,
+   état, structure et site d'origine — résolue à la publication. Elle ne joint pas `bien`, qui est
+   cloisonné : une jointure externe vers une table cloisonnée rend `null` hors périmètre, et une
+   offre vide de son contenu serait une fonction vidée par une politique de sécurité correcte. C'est
+   le défaut de la migration 040000 et celui du magasinier, pris une troisième fois par le même bout.
+   Accessoirement, cela fige ce qui a été offert : ce qui a été publié reste ce qui a été publié.
+3. `demande_reemploi` porte `structure_id` — celle de l'offre, pour que la clé étrangère composite
+   de l'ADR-001 tienne — **et** `structure_demandeuse_id`. Elle est lisible des deux côtés, déposée
+   par la structure demandeuse, tranchée par celle d'origine.
+4. **Le réemploi ne circule qu'entre structures de régime `integre`.** Faire entrer un bien de la
+   Primature dans le patrimoine d'un établissement autonome n'est pas un réemploi mais une cession,
+   que le SIGL ne prononce jamais (RG-016, RG-018). Une offre n'est donc pas demandable par un
+   établissement autonome, et le refus le dit en ces termes.
+
+**Trancher une demande prononce le réemploi** : accepter, c'est faire l'acte. Un seul geste, une
+seule transaction — un mouvement de type `reemploi` qui transfère le bien, un document
+`acte_transfert`, l'offre close, les autres demandes écartées d'office, et le dossier passé à
+`reemploye`. Deux routes pour un acte unique en laisseraient une moitié faite.
+
+**RG-033 ferme le raccourci.** `POST /api/biens/:id/mouvements` n'accepte plus le type `reforme` : il
+renvoie le code RG-033 et nomme la route du circuit. Un bien ne sortait jusqu'ici du service que sur
+la lassitude d'une seule structure, sans qu'aucune pièce ne prouve qu'il était inutilisable pour
+toute la Primature. Les essais qui empruntaient ce raccourci passent par le circuit ; **le nombre
+d'essais ne baisse pas.**
+
+**Deux paramètres, horodatés comme les seuils de passation, jamais des constantes** :
+`reemploi.duree_offre_jours` (valeur de départ 30) et `reforme.commission_membres_minimum`
+(valeur de départ 3, avis à la majorité des membres ayant émis un avis). La règle de majorité est
+posée **à un seul endroit** pour être renversée à peu de frais quand l'institution tranchera.
+
+**Droits.** Proposer : le `detenteur` du bien, le `magasinier` ou le `comptable_matieres`. Siéger et
+donner un avis : tout agent métier désigné à la commission, hors celui qui a proposé (RG-030).
+Offrir, clore l'offre et trancher une demande : la `logistique`. Demander un réemploi : un
+`chef_structure`, un `magasinier` ou un `comptable_matieres` de la structure demandeuse. Saisir les
+domaines et enregistrer leur décision : la `logistique`. Lecture : la garde `lecture()` ordinaire,
+portée RG-017 — **sauf les offres, lisibles de tous.**
 
 **Authentification** — pas de mot de passe à ce stade : un en-tête `X-Agent-Id` désigne l'agent
 courant et le serveur en déduit les rôles. Un écran de sélection de profil permet de changer
