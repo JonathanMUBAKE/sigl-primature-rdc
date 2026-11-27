@@ -589,3 +589,67 @@ CGIG : dépôt d'un fichier de cinq lignes, rapport rendu (deux à créer, deux 
 colonne, une déjà au registre), application, puis contrôle en base — l'immatriculation
 `INV/CGIG/2014/0071` conservée telle quelle, `BRT-CGIG-CHA-00011` générée pour le bien qui n'en avait
 pas. Les biens de vérification ont été retirés de la base de démonstration après coup.
+
+---
+
+## 27 novembre 2026 — Le poste de commande, et le canal qui existait vraiment
+
+**D'abord, une correction de route.** La consigne du chantier dit de commencer par l'issue #1 du
+dépôt, « le canal avec ChatGPT ». Cette issue est close depuis hier : elle n'a jamais été un canal,
+et je l'ai écrit moi-même en la fermant. Le canal réel est un dossier local,
+`Documents\Codex\SIGL-Coordination-Locale`, avec ses messages datés, son `STATUS.md` et son
+`DECISIONS.md`. Deux messages de Codex y attendaient depuis midi, dont une **proposition de
+conception complète pour le poste de commande**. Une session de plus commencée par l'issue close, et
+ils seraient restés sans réponse. **La consigne de la tâche planifiée est à corriger** — elle
+envoie vers une boîte close ; je ne la modifie pas moi-même, c'est la configuration de Jonathan.
+
+**La conception est de Codex, la réalisation est de moi.** Sa proposition
+(`POSTE-DE-COMMANDE.md`, dans sa copie) tient en une phrase : *un poste de travail par rôle, pas un
+tableau de graphiques décoratifs*. Elle ne demande ni refonte ni changement de charte — elle demande
+que le premier rang de l'écran cesse de montrer ce qui se contemple et montre ce qui attend une
+action. Contrat gelé avant la première ligne de code dans `docs/LOT-POSTE-DE-COMMANDE.md`, puis deux
+agents en parallèle sur des périmètres disjoints, serveur et interface.
+
+**Ce que la vérification demandée a trouvé : rien, et c'est un résultat.** Codex signalait que les
+agrégats d'achats du tableau de bord sont écrits sans filtre de portée et demandait un essai
+d'intégration plutôt qu'une conclusion. Les trois essais passent **avant** toute modification : la
+sécurité au niveau des lignes posée hier sur `dossier_achat` et `bon_commande` bornait déjà ces
+agrégats. Les essais n'affirment pas « non vide » — ils opposent chaque agrégat à la vérité terrain
+lue en chemin privilégié, et vérifient que l'écart avec la portée totale vaut **exactement** le
+montant de l'établissement autonome. Une fuite d'un franc ferait rougir l'égalité. Le filtre
+explicite est posé quand même : une règle tenue à deux endroits survit à l'oubli d'un seul.
+
+**Deux règles nouvelles, et c'est la seconde qui compte.**
+
+- **RG-038** — aucun chiffre du poste de commande n'est un cul-de-sac : il porte le lien de la liste
+  autorisée qui le compose. L'écran l'enfreignait sans le savoir : `lienUi` ne connaissait ni
+  `bons-commande`, ni `dossiers-achat`, ni `receptions`, donc **aucun chiffre d'achat n'était
+  cliquable**.
+- **RG-039** — une donnée qu'un profil ne peut pas lire se dit indisponible avec son motif, jamais
+  par un zéro. C'est la leçon du journal muet d'avant-hier, écrite cette fois comme une règle de
+  forme tenue par le constructeur des chiffres, et non laissée à la vigilance de chaque requête.
+
+**La couture, et ce qu'elle a appris.** Les deux agents respectaient le contrat, et le résultat
+était faux quand même : le chiffre « Livraisons attendues » comptait des bons de commande et menait
+à la liste des **dossiers** d'achat, où un bon ne se lit pas ligne par ligne. RG-038 tenue à la
+lettre, manquée en esprit. La liste qui compose vraiment ces chiffres existait : l'écran des
+réceptions, dont la ligne *est* le bon de commande, rangée par étape de la chaîne de l'article 137.
+Les trois chiffres de la chaîne y mènent désormais, chacun à son étape. Et pour que la traduction ne
+mente pas, le chiffre a changé de définition plutôt que le lien : **un chiffre et la liste où il
+mène se comptent par le même prédicat**, sans quoi l'agent voit deux nombres différents et doute du
+logiciel. C'est la règle que je retiens de ce lot.
+
+**Quatre contrats qui manquent, renvoyés à la conception plutôt qu'inventés à l'écran.** La
+proposition de Codex demande des files de factures, des échéances de paiement, des montants par
+devise et des livraisons en retard. Rien dans le schéma ne les porte : il n'y a ni table `facture`,
+ni objet de paiement (le paiement est un statut du bon de commande), ni colonne de devise, ni date
+de livraison attendue. Un écran qui les aurait affichés aurait montré des chiffres sans source.
+Les quatre manques sont écrits au §5 du contrat du lot et renvoyés dans le canal.
+
+**Décisions prises seul.** Le chiffre 2 compte les bons sans procès-verbal de réception, et non trois
+statuts choisis à la main — seule définition qui coïncide avec la liste où il mène. Les montants
+agrégés sont libellés « FC » : c'est la seule devise que le schéma connaisse, l'addition est donc
+licite, et agréger par devise suppose d'abord une colonne, c'est-à-dire une décision de conception.
+La valeur d'acquisition quitte le premier rang pour le bloc patrimoine, accompagnée du nombre de
+biens dont la valeur n'est pas documentée : un total partiel ne doit pas se lire comme un inventaire
+valorisé.

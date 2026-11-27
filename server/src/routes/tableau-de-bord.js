@@ -12,6 +12,7 @@
 import { lireTous, lireUn } from './_sql.js';
 import { FENETRE_CONSOMMATION_JOURS, consommationConstatee } from './_consommation.js';
 import { lecture, structuresDe } from './_droits.js';
+import { bonAttendPaiement, bonSansPv, pvSansCertificat } from './_etapes.js';
 import { porteeTotale } from '../regles/roles.js';
 
 /** `and colonne in (...)` quand la portée est limitée, rien sinon. */
@@ -21,6 +22,48 @@ function filtre(permises, colonne, params) {
   const places = permises.map((_, i) => `$${params.length + i + 1}`).join(', ');
   params.push(...permises);
   return ` and ${colonne} in (${places})`;
+}
+
+/**
+ * Un chiffre du premier rang, dans la forme gelée du contrat §2.1.
+ *
+ * **Il se construit ici et nulle part ailleurs**, parce que RG-038 et RG-039
+ * sont des règles de forme et qu'une règle de forme tenue à la main finit par
+ * céder. Six objets écrits six fois, c'est six occasions d'oublier un lien ou
+ * de rendre `0` pour dire « non lisible » — et un zéro se lit comme une bonne
+ * nouvelle.
+ *
+ *   RG-038 : pas de lien, pas de chiffre. Le refus est prononcé au montage,
+ *            pour qu'un cul-de-sac ne soit jamais découvert à l'écran.
+ *   RG-039 : indisponible ⇒ `valeur: null` et un motif. Un calcul qui n'a pas
+ *            abouti suit la même voie : il se dit, il ne vaut pas zéro.
+ */
+export function chiffre({
+  libelle, valeur, appui = null, lien, disponible = true, motif = null,
+}) {
+  if (!lien) {
+    throw new Error(
+      `RG-038 — le chiffre « ${libelle} » n'a pas de lien : un chiffre sans liste autorisée est un cul-de-sac.`,
+    );
+  }
+  const nombre = valeur === null || valeur === undefined ? Number.NaN : Number(valeur);
+  if (disponible === false || !Number.isFinite(nombre)) {
+    return {
+      libelle,
+      valeur: null,
+      appui,
+      lien,
+      disponible: false,
+      motif: motif
+        ?? "Ce chiffre n'a pas pu être calculé : votre profil ne lit pas toutes les données qui le composent.",
+    };
+  }
+  return { libelle, valeur: Math.round(nombre), appui, lien, disponible: true, motif: null };
+}
+
+/** « 7 derniers jours », et le singulier qui va avec (contrat §2.3). */
+function libellePeriode(jours) {
+  return jours === 1 ? 'dernier jour' : `${jours} derniers jours`;
 }
 
 export default async function routesTableauDeBord(app) {
@@ -95,9 +138,7 @@ export default async function routesTableauDeBord(app) {
          from document pv
          join structure s on s.id = pv.structure_id
         where pv.type = 'pv_reception'
-          and not exists (select 1 from document c
-                           where c.type = 'certificat_prise_en_charge'
-                             and c.objet_type = pv.objet_type and c.objet_id = pv.objet_id)
+          and (${pvSansCertificat('pv')})
           ${filtre(permises, 'pv.structure_id', pPec)}
         order by pv.cree_le asc limit 100`,
       pPec,
@@ -156,6 +197,37 @@ export default async function routesTableauDeBord(app) {
     }
 
     enAttenteDeDecision.sort((a, b) => b.anciennete_jours - a.anciennete_jours);
+    // L'appui du chiffre 1 et le champ du bloc disent le même nombre, compté
+    // une seule fois : deux comptes jumeaux finiraient par diverger.
+    const auDelaDe7Jours = enAttenteDeDecision.filter((a) => a.anciennete_jours > 7).length;
+
+    // --- Les files de la chaîne de la dépense : des comptes, pas des longueurs
+    //
+    // Les trois listes ci-dessus sont bornées à cent lignes, parce qu'elles
+    // nomment chaque attente et son responsable — un écran n'en affiche pas
+    // mille. Leur **longueur** ne peut donc pas servir de chiffre : au
+    // cent-unième dossier, le poste de commande annoncerait cent et la liste
+    // liée en rendrait davantage. Un chiffre est un compte.
+    //
+    // Les prédicats viennent de `_etapes.js`, les mêmes que ceux des filtres
+    // `/api/bons-commande?sans_pv=true`, `/api/receptions?sans_certificat=true`
+    // et `/api/bons-commande?attend_paiement=true` : c'est ce qui fait que le
+    // chiffre est **exactement** le total de la liste qu'il porte (RG-038).
+    const pFiles = [];
+    const files = await lireUn(request,
+      `select
+         (select count(*)::int from bon_commande bc
+           where (${bonSansPv('bc')})
+             ${filtre(permises, 'bc.structure_id', pFiles)}) as attendent_reception,
+         (select count(*)::int from document pv
+           where pv.type = 'pv_reception'
+             and (${pvSansCertificat('pv')})
+             ${filtre(permises, 'pv.structure_id', pFiles)}) as attendent_prise_en_charge,
+         (select count(*)::int from bon_commande bc
+           where (${bonAttendPaiement('bc')})
+             ${filtre(permises, 'bc.structure_id', pFiles)}) as attendent_paiement`,
+      pFiles,
+    );
 
     // --- Le délai moyen du besoin à la livraison -----------------------
     const pDelai = [];
@@ -233,13 +305,23 @@ export default async function routesTableauDeBord(app) {
     let sousCritique = 0;
     let enRupture = 0;
     let ruptureSous30 = 0;
+    // Le chiffre 5 du poste de commande compte des articles **distincts**, et
+    // non la somme des trois compteurs ci-dessus : un article vide dont la
+    // consommation est connue est à la fois en rupture et en rupture prévue
+    // sous 30 jours, et la somme le compterait deux fois. Un chiffre d'action
+    // gonflé fait courir après des articles qui n'existent pas.
+    let stockARisque = 0;
     for (const a of stocks) {
       const conso = Number(consommations.get(String(a.id))?.consommation_jour ?? 0);
       const jours_couverture = conso > 0 ? Math.floor(Number(a.quantite) / conso) : null;
-      if (Number(a.quantite) === 0) enRupture += 1;
-      else if (Number(a.quantite) <= Number(a.seuil_critique)) sousCritique += 1;
+      const vide = Number(a.quantite) === 0;
+      const critique = !vide && Number(a.quantite) <= Number(a.seuil_critique);
+      const sous30 = jours_couverture !== null && jours_couverture <= 30;
+      if (vide || critique || sous30) stockARisque += 1;
+      if (vide) enRupture += 1;
+      else if (critique) sousCritique += 1;
       else if (Number(a.quantite) <= Number(a.seuil_minimum)) sousMinimum += 1;
-      if (jours_couverture !== null && jours_couverture <= 30) {
+      if (sous30) {
         ruptureSous30 += 1;
         articlesCritiques.push({
           id: a.id,
@@ -257,18 +339,36 @@ export default async function routesTableauDeBord(app) {
     articlesCritiques.sort((a, b) => a.jours_couverture - b.jours_couverture);
 
     // --- Les achats : par procédure, et les écarts ----------------------
-    const dossiersParProcedure = await lireTous(request, 
-      `select d.procedure, d.statut, count(*)::int as nombre, coalesce(sum(d.montant_estime), 0) as montant_estime
-         from dossier_achat d group by d.procedure, d.statut order by d.procedure`,
+    //
+    // Ceinture et bretelle (contrat du lot §4). `dossier_achat` et
+    // `bon_commande` sont sous sécurité au niveau des lignes depuis la
+    // migration 20261127050000, et les essais de `tableau-de-bord-portee`
+    // prouvent que la base borne bien ces deux agrégats. Le filtre explicite
+    // est posé quand même : une politique correcte lue au bout d'une jointure
+    // s'est déjà effacée une fois sur ces mêmes tables (migration 040000), et
+    // un agrégat qui fuit ne lève rien — il affiche l'argent des autres. La
+    // route dit donc la même chose que la base, pour qu'un futur relâchement
+    // de politique ne vide pas le cloisonnement en silence.
+    const pProcedure = [];
+    const dossiersParProcedure = await lireTous(request,
+      `select d.procedure, d.statut, count(*)::int as nombre,
+              coalesce(sum(d.montant_estime), 0) as montant_estime
+         from dossier_achat d
+        where true${filtre(permises, 'd.structure_id', pProcedure)}
+        group by d.procedure, d.statut order by d.procedure`,
+      pProcedure,
     );
-    const ecarts = await lireUn(request, 
+    const pEcarts = [];
+    const ecarts = await lireUn(request,
       `select coalesce(sum(bc.montant), 0) as montant_commande,
               coalesce(sum(bc.montant) filter (where bc.statut in ('livre', 'livre_partiel', 'receptionne', 'payable', 'paye')), 0) as montant_livre,
               coalesce(sum(bc.montant) filter (where bc.statut in ('receptionne', 'payable', 'paye')), 0) as montant_receptionne,
               coalesce(sum(bc.montant) filter (where bc.statut = 'paye'), 0) as montant_paye,
               count(*)::int as bons,
               count(*) filter (where bc.statut = 'livre_partiel')::int as livraisons_partielles
-         from bon_commande bc`,
+         from bon_commande bc
+        where true${filtre(permises, 'bc.structure_id', pEcarts)}`,
+      pEcarts,
     );
 
     // --- Les alertes ouvertes, par gravité -----------------------------
@@ -314,17 +414,25 @@ export default async function routesTableauDeBord(app) {
       activiteParJour.set(cle, jour);
     }
 
-    // --- Les chiffres de tête ------------------------------------------
-    const pTete = [];
-    const tete = await lireUn(request, 
-      `select (select count(*)::int from bien b where true${filtre(permises, 'b.structure_id', pTete)}) as biens`,
-      [...pTete],
-    );
-    const pTete2 = [];
-    const valeurTotale = await lireUn(request, 
-      `select coalesce(sum(b.valeur_acquisition), 0) as valeur
-         from bien b where true${filtre(permises, 'b.structure_id', pTete2)}`,
-      pTete2,
+    // --- Les totaux du patrimoine (contrat §2.2) ------------------------
+    //
+    // « Biens au registre » et « Valeur d'acquisition » quittent le premier
+    // rang : ce sont des inventaires, et un inventaire ne demande aucune
+    // décision. Ils descendent ici, avec le chiffre qui leur manquait — le
+    // nombre de biens dont la valeur d'entrée n'est **pas documentée**. C'est
+    // la leçon du lot de reprise : le total d'une valeur partielle ne doit pas
+    // se lire comme un inventaire valorisé.
+    //
+    // Une seule requête pour les trois : elles lisaient la même table deux
+    // fois pour deux agrégats.
+    const pPatrimoine = [];
+    const totauxPatrimoine = await lireUn(request,
+      `select count(*)::int as biens,
+              coalesce(sum(b.valeur_acquisition), 0) as valeur_acquisition,
+              count(*) filter (where not b.valeur_acquisition_connue)::int as valeur_non_documentee
+         from bien b
+        where true${filtre(permises, 'b.structure_id', pPatrimoine)}`,
+      pPatrimoine,
     );
 
     // --- Le réemploi : ce que les autres structures offrent -------------
@@ -361,28 +469,62 @@ export default async function routesTableauDeBord(app) {
         consolide: porteeTotale(request.agent),
         structures: permises === null ? 'toutes' : permises.length,
       },
+      // Les six chiffres d'action, dans l'ordre gelé du contrat §2.1. Ils ne
+      // disent plus ce que la maison possède, mais ce qui attend quelqu'un :
+      // les inventaires sont descendus dans `patrimoine.totaux`, et le réemploi
+      // dans son propre bloc, où l'un et l'autre restent lisibles et
+      // cliquables. L'ordre est la couture avec l'écran : il ne varie pas, et
+      // l'interface ne le réordonne jamais.
       chiffres_de_tete: [
-        { libelle: 'Biens au registre', valeur: tete.biens, lien: '/api/biens' },
-        { libelle: "Valeur d'acquisition (FC)", valeur: Number(valeurTotale.valeur), lien: '/api/biens' },
-        { libelle: 'Décisions en attente', valeur: enAttenteDeDecision.length, lien: '/api/besoins?statut=vise' },
-        { libelle: 'Articles sous seuil', valeur: sousMinimum + sousCritique + enRupture, lien: '/api/stocks?sous_seuil=true' },
-        // Le chiffre de tête ne compte que ce qui brûle : une alerte dont la
-        // condition est levée n'attend plus qu'un classement, elle n'appelle
-        // pas une décision d'approvisionnement.
-        { libelle: 'Alertes actives', valeur: alertesActives, lien: '/api/alertes?nature=active' },
-        // Le gisement d'économies du lot « réforme », en un nombre cliquable :
-        // les biens que **les autres** structures offrent au réemploi. Deux
-        // clics depuis le tableau de bord, comme le contrat du lot l'exige.
-        {
-          libelle: 'Biens offerts au réemploi par d’autres structures',
-          valeur: reemploi.ailleurs,
-          lien: '/api/offres-reemploi?ouvertes=true',
-        },
+        chiffre({
+          libelle: 'Décisions en attente',
+          valeur: enAttenteDeDecision.length,
+          appui: `${auDelaDe7Jours} au-delà de 7 jours`,
+          lien: '/api/besoins?statut=vise',
+        }),
+        // « Attend sa réception » : le PV manque, quel que soit le statut
+        // déclaré du bon. Le lien ouvre la liste dont la ligne est le bon de
+        // commande, pas celle des dossiers d'achat — dont le `statut` ne
+        // désigne pas la même chose et faisait du chiffre un chiffre invérifiable.
+        chiffre({
+          libelle: 'Livraisons attendues',
+          valeur: files.attendent_reception,
+          appui: `${ecarts.livraisons_partielles} partielle(s)`,
+          lien: '/api/bons-commande?sans_pv=true',
+        }),
+        chiffre({
+          libelle: 'Réceptions à compléter',
+          valeur: files.attendent_prise_en_charge,
+          lien: '/api/receptions?sans_certificat=true',
+        }),
+        chiffre({
+          libelle: 'Paiements en attente',
+          valeur: files.attendent_paiement,
+          lien: '/api/bons-commande?attend_paiement=true',
+        }),
+        // Des articles **distincts** : un article vide dont la consommation est
+        // connue est à la fois en rupture et en rupture prévue sous 30 jours, et
+        // la somme des trois compteurs le compterait deux fois.
+        chiffre({
+          libelle: 'Stock à risque',
+          valeur: stockARisque,
+          appui: `dont ${enRupture} en rupture`,
+          lien: '/api/stocks?tri=criticite',
+        }),
+        // Ce chiffre ne compte que ce qui brûle : une alerte dont la condition
+        // est levée n'attend plus qu'un classement, elle n'appelle pas une
+        // décision d'approvisionnement.
+        chiffre({
+          libelle: 'Alertes actives',
+          valeur: alertesActives,
+          lien: '/api/alertes?nature=active',
+        }),
       ],
+      periode: { jours, libelle: libellePeriode(jours) },
       en_attente_de_decision: {
         total: enAttenteDeDecision.length,
         plus_ancienne_jours: enAttenteDeDecision[0]?.anciennete_jours ?? 0,
-        au_dela_de_7_jours: enAttenteDeDecision.filter((a) => a.anciennete_jours > 7).length,
+        au_dela_de_7_jours: auDelaDe7Jours,
         lignes: enAttenteDeDecision.slice(0, 50),
         lien: '/api/besoins?statut=vise',
       },
@@ -394,6 +536,16 @@ export default async function routesTableauDeBord(app) {
         lien: '/api/besoins?statut=clos',
       },
       patrimoine: {
+        // Contrat §2.2. `biens_valeur_non_documentee` est le chiffre qui
+        // manquait : sans lui, `valeur_acquisition` se lit comme un inventaire
+        // valorisé alors qu'il ne porte que les biens dont la valeur d'entrée
+        // est documentée.
+        totaux: {
+          biens: totauxPatrimoine.biens,
+          valeur_acquisition: Number(totauxPatrimoine.valeur_acquisition),
+          biens_valeur_non_documentee: totauxPatrimoine.valeur_non_documentee,
+          lien: '/api/biens',
+        },
         par_categorie: parCategorie.map((c) => ({
           ...c,
           valeur: Number(c.valeur),

@@ -15,6 +15,7 @@ import {
   schemaIdParam, schemaPagination,
 } from './_commun.js';
 import { journaliserDepuis } from './_journal.js';
+import { pvSansCertificat } from './_etapes.js';
 import { prochainNumero } from './_numeros.js';
 import { leverAlerte } from './_alertes.js';
 import { publier } from './_flux.js';
@@ -111,6 +112,11 @@ export default async function routesReceptions(app) {
         properties: {
           bon_commande: { type: 'string', format: 'uuid' },
           signe: { type: 'boolean' },
+          // La file de travail du comptable des matières : les PV qui attendent
+          // encore leur prise en charge à l'inventaire. C'est la liste que
+          // compose le chiffre « Réceptions à compléter » du poste de commande,
+          // et RG-038 veut qu'un chiffre mène à la liste qui le compose.
+          sans_certificat: { type: 'boolean' },
           ...schemaPagination,
         },
       },
@@ -126,6 +132,15 @@ export default async function routesReceptions(app) {
     if (request.query.signe !== undefined) {
       ou += request.query.signe ? ' and d.signe_le is not null' : ' and d.signe_le is null';
     }
+    if (request.query.sans_certificat !== undefined) {
+      // Le même prédicat que la colonne `pris_en_charge` rendue plus bas, et
+      // que le chiffre « Réceptions à compléter » du poste de commande : tous
+      // trois lisent `_etapes.js`, donc aucun ne peut démentir les autres. Et
+      // il se dit en SQL, non après coup, pour que `total` et la pagination
+      // restent justes.
+      const predicat = pvSansCertificat('d');
+      ou += request.query.sans_certificat ? ` and (${predicat})` : ` and not (${predicat})`;
+    }
     const total = await lireUn(request, `select count(*)::int as n from document d ${ou}`, params);
     const donnees = await lireTous(request,
       `select d.id, d.numero, d.objet_type, d.objet_id, d.contenu, d.signe_le, d.fige, d.cree_le,
@@ -136,9 +151,7 @@ export default async function routesReceptions(app) {
               extract(day from coalesce(bc.livre_le, d.cree_le) - bc.emis_le)::int as delai_livraison_jours,
               da.numero as dossier_numero, da.objet as dossier_objet, da.procedure,
               ${FOURNISSEUR_CONSTATE},
-              exists (select 1 from document c
-                       where c.type = 'certificat_prise_en_charge'
-                         and c.objet_type = d.objet_type and c.objet_id = d.objet_id) as pris_en_charge
+              not (${pvSansCertificat('d')}) as pris_en_charge
          from document d
          join structure s on s.id = d.structure_id
          left join agent a on a.id = d.signataire_id

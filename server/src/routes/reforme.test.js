@@ -1158,13 +1158,26 @@ describe('La liste des offres de réemploi répond à tous ses filtres', () => {
       'les deux comptes se recomposent en un seul',
     );
 
-    // Le chiffre de tête est cliquable et vaut exactement « ailleurs » : c'est
-    // le serveur qui écarte les offres de la structure du lecteur, et pas
+    // Le réemploi a quitté le premier rang le 27 novembre 2026
+    // (`docs/LOT-POSTE-DE-COMMANDE.md` §2.1 et §3) : les six chiffres d'action
+    // ne portent que ce qui attend une décision dans la maison, et une offre
+    // publiée ailleurs n'en est pas une. Il rejoint un bloc de contexte, où il
+    // reste **lisible et cliquable** — c'était tout l'enjeu du lot « réforme »,
+    // et c'est ce que cet essai continue de garder.
+    assert.ok(
+      !corps.chiffres_de_tete.some((c) => /réemploi/i.test(c.libelle)),
+      'le réemploi n’est plus un chiffre d’action : il est un contexte',
+    );
+    assert.ok(
+      corps.reemploi.offres_ouvertes_ailleurs > 0,
+      'une autre structure a offert pendant cet essai, et le contexte le dit encore',
+    );
+    // C'est le serveur qui écarte les offres de la structure du lecteur, et pas
     // l'écran — ce serait un jugement métier rendu à l'écran.
-    const tete = corps.chiffres_de_tete.find((c) => /réemploi/i.test(c.libelle));
-    assert.ok(tete, 'un chiffre de tête nomme le réemploi');
-    assert.equal(tete.valeur, corps.reemploi.offres_ouvertes_ailleurs);
-    assert.equal(tete.lien, '/api/offres-reemploi?ouvertes=true');
+    assert.notEqual(
+      corps.reemploi.offres_ouvertes_ailleurs, corps.reemploi.offres_ouvertes,
+      'le compte « ailleurs » n’est pas le total brut des offres ouvertes',
+    );
 
     // Et il écarte bien les siennes : le SGG offre au jeu de démonstration, et
     // ce que le chiffre compte n'est pas ce que la liste rend brute.

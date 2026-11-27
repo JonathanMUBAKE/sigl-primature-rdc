@@ -22,6 +22,7 @@ import {
   ErreurMetier,
 } from './_commun.js';
 import { refuserOuIntrouvable } from './_rattachement.js';
+import { bonAttendPaiement, bonSansPv } from './_etapes.js';
 import { journaliserDepuis } from './_journal.js';
 import { prochainNumero } from './_numeros.js';
 import { fenetreDecoupageJours, seuilsPassationDetail } from './_parametres.js';
@@ -413,6 +414,16 @@ export default async function routesAchats(app) {
           statut: { type: 'string' },
           dossier: { type: 'string', format: 'uuid' },
           fournisseur: { type: 'string', format: 'uuid' },
+          // Les deux étapes de la chaîne, filtrables par leur **constat** et
+          // non par le statut déclaré du bon. Ce sont les listes que composent
+          // les chiffres « Livraisons attendues » et « Paiements en attente »
+          // du poste de commande : même prédicat de part et d'autre
+          // (`_etapes.js`), pour que le chiffre et la liste ne puissent pas se
+          // contredire. Filtrer par `statut` ne les remplace pas : un bon
+          // `livre` sans PV attend sa réception, et un bon `receptionne` sans
+          // certificat n'attend pas encore son paiement.
+          sans_pv: { type: 'boolean' },
+          attend_paiement: { type: 'boolean' },
           ...schemaPagination,
         },
       },
@@ -425,6 +436,14 @@ export default async function routesAchats(app) {
       if (request.query[cle]) {
         params.push(request.query[cle]);
         ou += ` and ${colonne} = $${params.length}`;
+      }
+    }
+    // La moitié complémentaire est la **négation entière** du prédicat, et pas
+    // la négation de son dernier membre : les deux moitiés doivent recomposer
+    // le tout, sinon le filtre perd des bons en silence.
+    for (const [cle, predicat] of [['sans_pv', bonSansPv('bc')], ['attend_paiement', bonAttendPaiement('bc')]]) {
+      if (request.query[cle] !== undefined) {
+        ou += request.query[cle] ? ` and (${predicat})` : ` and not (${predicat})`;
       }
     }
     // Le périmètre, comme pour les réceptions et les documents.
