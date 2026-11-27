@@ -155,3 +155,22 @@ règle posée dans `COLLABORATION.md`. Les y mettre maintenant changerait la ré
 devenant invisible, la route répondrait 404 au lieu du 403 / RG-017 que la spécification demande, et
 le comptable public perdrait l'explication « ce bon relève de l'ARMP, qui tient ses propres
 écritures ». C'est un arbitrage de conception, donc celui de ChatGPT. Signalé sur l'issue.
+
+**Et la même faute, un cran plus loin : la liste des dossiers d'achat ne filtrait rien.**
+
+`GET /api/dossiers-achat` s'écrivait `where true`, plus le statut et la procédure. `dossier_achat`
+n'étant pas cloisonnée par la base, **tout agent voyait les dossiers de toutes les structures**,
+établissements autonomes compris — sous une étiquette qui annonçait pourtant « N dossier(s) dans
+votre périmètre ». Le détail `GET /api/dossiers-achat/:id` ne contrôlait rien non plus : on ouvrait
+n'importe quel dossier par son identifiant.
+
+Le symptôme visible semblait anodin, et c'est ce qui rend le cas instructif : chaque ligne annonçait
+« Sans état de besoin rattaché » tout en nommant l'état de besoin dans son objet. L'interface ne
+mentait pas — `etat_besoin`, elle, **est** cloisonnée, donc pour un dossier hors portée la base
+masquait le besoin et la jointure rendait `null`. Une contradiction à l'écran était la trace d'une
+fuite de périmètre.
+
+Trouvé en ouvrant l'écran dans le navigateur, pas par les essais : l'agent de démonstration courant
+est directrice à l'ARMP, un établissement autonome, et elle voyait les douze dossiers de toute la
+Primature. Quatre essais ajoutés avant la correction (`perimetre-achats.test.js`), trois rouges.
+143 essais, 143 passent.

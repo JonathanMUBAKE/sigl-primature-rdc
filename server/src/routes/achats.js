@@ -130,13 +130,13 @@ function fournisseurVu(ligne) {
  * se distingue pas d'une absence de cloisonnement — le contrôle s'effaçait
  * exactement là où il devait mordre. Voir la migration 20261127040000.
  */
-async function clausePerimetreBons(request, params) {
+async function clausePerimetre(request, params, colonne) {
   const permises = await structuresDe(request);
   if (permises === null) return ''; // portée totale : lecture consolidée.
   if (permises.length === 0) return ' and false';
   const places = permises.map((_, i) => `$${params.length + i + 1}`).join(', ');
   params.push(...permises);
-  return ` and bc.structure_id in (${places})`;
+  return ` and ${colonne} in (${places})`;
 }
 
 export default async function routesAchats(app) {
@@ -169,6 +169,11 @@ export default async function routesAchats(app) {
       params.push(`%${request.query.q.toLowerCase()}%`);
       ou += ` and (lower(d.objet) like $${params.length} or lower(d.numero) like $${params.length})`;
     }
+    // Le périmètre. Il manquait : la liste rendait les dossiers de toutes les
+    // structures, établissements autonomes compris, sous une étiquette qui
+    // annonçait pourtant « dans votre périmètre ». `dossier_achat` n'étant pas
+    // cloisonnée par la base, rien ne rattrapait l'oubli côté route.
+    ou += await clausePerimetre(request, params, 'd.structure_id');
     const total = await lireUn(request, `select count(*)::int as n from dossier_achat d ${ou}`, params);
     const donnees = await lireTous(request, 
       `select d.*, e.numero as etat_besoin_numero,
@@ -202,6 +207,7 @@ export default async function routesAchats(app) {
       [request.params.id],
     );
     if (!dossier) throw nonTrouve("Ce dossier d'achat");
+    await verifierLectureStricte(request, dossier.structure_id, "Ce dossier d'achat");
     const bons = await lireTous(request,
       `select bc.*, ${FOURNISSEUR_CONSTATE},
               extract(day from coalesce(bc.livre_le, now()) - bc.emis_le)::int as delai_ecoule_jours
@@ -419,7 +425,7 @@ export default async function routesAchats(app) {
       }
     }
     // Le périmètre, comme pour les réceptions et les documents.
-    ou += await clausePerimetreBons(request, params);
+    ou += await clausePerimetre(request, params, 'bc.structure_id');
     const DEPUIS = `from bon_commande bc
          join fournisseur f on f.id = bc.fournisseur_id
          join dossier_achat d on d.id = bc.dossier_id
@@ -501,6 +507,7 @@ export default async function routesAchats(app) {
       [request.body.dossier_id],
     );
     if (!dossier) throw nonTrouve("Ce dossier d'achat");
+    await verifierLectureStricte(request, dossier.structure_id, "Ce dossier d'achat");
     if (['clos', 'annule'].includes(dossier.statut)) {
       throw donneesInvalides(
         `Ce dossier est au statut « ${dossier.statut} » : on n'y rattache plus de bon de commande.`,

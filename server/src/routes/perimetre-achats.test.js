@@ -286,3 +286,75 @@ describe("Le détail d'un dossier d'achat porte ses lignes", () => {
     assert.ok(ligne.categorie_libelle, 'la catégorie est libellée, pas seulement codée');
   });
 });
+
+// --- Le périmètre des dossiers d'achat -----------------------------------
+//
+// LE DÉFAUT CONSTATÉ, À L'ÉCRAN. La liste des dossiers n'avait **aucun** filtre
+// de périmètre : `where true`, plus le statut et la procédure. Comme
+// `dossier_achat` n'est pas cloisonnée par la base, tout agent voyait les
+// dossiers de toutes les structures, établissements autonomes compris — alors
+// que l'écran affiche « N dossier(s) dans votre périmètre ».
+//
+// Le symptôme visible était ailleurs et semblait anodin : chaque ligne annonçait
+// « Sans état de besoin rattaché » tout en nommant l'état de besoin dans son
+// objet. L'interface ne mentait pas — `etat_besoin` **est** cloisonnée, donc
+// pour un dossier hors portée la base masquait le besoin et la jointure rendait
+// `null`. Une contradiction à l'écran était la trace d'une fuite de périmètre.
+
+/** Les numéros de dossiers que cet agent voit, sur la liste complète. */
+async function dossiersVus(agent) {
+  const reponse = await appel(agent, { method: 'GET', url: '/api/dossiers-achat?parPage=200' });
+  assert.equal(reponse.statusCode, 200, reponse.body);
+  return reponse.json().donnees.map((d) => d.numero);
+}
+
+describe("Le périmètre des dossiers d'achat", () => {
+  it("un chef de structure ne voit pas les dossiers d'une autre structure", async () => {
+    const vus = await dossiersVus(chefSgg);
+    assert.ok(
+      !vus.includes(cas.integreAvecCertificat.dossier.numero),
+      "le chef du SGG ne doit pas voir le dossier de la Delivery Unit",
+    );
+    assert.ok(
+      !vus.includes(cas.autonome.dossier.numero),
+      "il ne doit surtout pas voir le dossier d'un établissement autonome",
+    );
+  });
+
+  it("il n'ouvre pas davantage un dossier hors de son périmètre par son identifiant", async () => {
+    const reponse = await appel(chefSgg, {
+      method: 'GET', url: `/api/dossiers-achat/${cas.autonome.dossier.id}`,
+    });
+    assert.ok(
+      [403, 404].includes(reponse.statusCode),
+      `l'accès direct doit être refusé, reçu ${reponse.statusCode} : ${reponse.body}`,
+    );
+  });
+
+  it("le comptable public voit le périmètre intégré, jamais un établissement autonome", async () => {
+    const vus = await dossiersVus(comptablePublic);
+    assert.ok(
+      vus.includes(cas.integreAvecCertificat.dossier.numero),
+      'sa portée est transversale sur les structures intégrées',
+    );
+    assert.ok(
+      !vus.includes(cas.autonome.dossier.numero),
+      "elle s'arrête à la frontière juridique d'un établissement autonome",
+    );
+  });
+
+  it("la liste rend l'état de besoin qui a motivé le dossier, et sa structure", async () => {
+    const reponse = await appel(comptablePublic, {
+      method: 'GET', url: '/api/dossiers-achat?parPage=200',
+    });
+    assert.equal(reponse.statusCode, 200, reponse.body);
+    const vu = reponse.json().donnees
+      .find((d) => d.numero === cas.integreAvecCertificat.dossier.numero);
+    assert.ok(vu, 'le dossier doit être dans la liste');
+    assert.equal(
+      vu.etat_besoin_numero, cas.integreAvecCertificat.besoin.numero,
+      "l'écran ne doit plus annoncer « Sans état de besoin rattaché » pour un dossier qui en a un",
+    );
+    assert.ok(vu.structure_code, 'la structure concernée doit être nommée');
+  });
+});
