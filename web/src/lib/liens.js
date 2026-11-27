@@ -11,15 +11,30 @@ const ECRANS = {
   alertes: '/alertes',
   fournisseurs: '/fournisseurs',
   journal: '/journal',
+  // L'inventaire physique : la campagne est le poste de travail, et l'écart
+  // n'a pas d'écran à lui — il se tranche dans sa campagne.
+  'campagnes-inventaire': '/inventaire',
+  'ecarts-inventaire': '/inventaire',
+  rapprochements: '/rapprochements',
 }
+
+/*
+  Les familles dont l'écran de détail s'ouvre à `/ecran/:id` : le lien du
+  serveur porte l'identifiant, et on le garde plutôt que de retomber sur la
+  liste. Pour les autres, le comportement ne change pas.
+*/
+const GARDENT_IDENTIFIANT = new Set(['campagnes-inventaire', 'rapprochements'])
 
 /** Transforme un lien d'API en adresse d'écran, ou rend null. */
 export function lienUi(lien) {
   if (!lien || typeof lien !== 'string') return null
   if (!lien.startsWith('/api/')) return lien
   const [chemin, requete] = lien.slice('/api/'.length).split('?')
-  const famille = chemin.split('/')[0]
+  const segments = chemin.split('/')
+  const famille = segments[0]
   const ecran = ECRANS[famille]
   if (!ecran) return null
-  return requete ? `${ecran}?${requete}` : ecran
+  const adresse =
+    GARDENT_IDENTIFIANT.has(famille) && segments[1] ? `${ecran}/${segments[1]}` : ecran
+  return requete ? `${adresse}?${requete}` : adresse
 }

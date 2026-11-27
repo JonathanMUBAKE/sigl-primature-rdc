@@ -37,7 +37,11 @@ process.env[CLE_PRIVILEGE] = SESAME_PRIVILEGE;
 const HORIZON_JOURS = 548;
 
 const TABLES_A_VIDER = [
-  'journal', 'agent_role', 'mouvement', 'stock', 'bien',
+  'journal', 'agent_role',
+  // Le lot « inventaire » se vide avant le patrimoine qu'il constate.
+  'ecart_inventaire', 'constat_inventaire', 'campagne_agent', 'campagne_inventaire',
+  'rapprochement_partie', 'rapprochement_poste', 'rapprochement',
+  'mouvement', 'stock', 'bien',
   'ligne_besoin', 'bon_commande', 'dossier_achat', 'etat_besoin',
   'document', 'alerte', 'fournisseur',
   'sequence_immatriculation', 'sequence_document',
@@ -80,6 +84,8 @@ async function principal() {
       const achats = await creerAchats(bd, besoins, fournisseurs);
       const documents = await creerDocuments(bd, structures, agents, biens, besoins, achats);
       const alertes = await creerAlertes(bd, structures, agents, biens, fournisseurs, stocks);
+      const inventaires = await creerInventaires(bd, structures, sites, agents);
+      const rapprochements = await creerRapprochements(bd, structures, agents);
       const entrees = await creerJournal(bd, agents, biens, besoins, stocks);
 
       return {
@@ -90,14 +96,21 @@ async function principal() {
         categorie: CATEGORIES.length,
         parametre: parametres,
         bien: biens.length,
-        mouvement: mouvements,
+        mouvement: mouvements + inventaires.mouvements,
         stock: stocks.length,
         fournisseur: fournisseurs.length,
         etat_besoin: besoins.length,
         dossier_achat: achats.dossiers.length,
         bon_commande: achats.bons.length,
-        document: documents,
+        document: documents + inventaires.documents,
         alerte: alertes,
+        campagne_inventaire: inventaires.campagnes,
+        campagne_agent: inventaires.agents,
+        constat_inventaire: inventaires.constats,
+        ecart_inventaire: inventaires.ecarts,
+        rapprochement: rapprochements.rapprochements,
+        rapprochement_poste: rapprochements.postes,
+        rapprochement_partie: rapprochements.parties,
         journal: entrees,
       };
     });
@@ -1075,6 +1088,456 @@ async function creerAlertes(bd, structures, agents, biens, fournisseurs, stocks)
 }
 
 // ---------------------------------------------------------------------------
+// L'inventaire physique — décret 13/050 art. 120 et 122.
+//
+// Deux campagnes, pour qu'aucun écran ne soit vide et que les deux bouts du
+// circuit se voient :
+//   — une campagne **close sans écart** sur une petite structure : c'est à quoi
+//     ressemble un inventaire qui s'est bien passé, et c'est la seule forme qui
+//     prouve que RG-023 et RG-024 laissent passer quand tout est en ordre ;
+//   — une campagne **en cours** sur le magasin central, avec une quinzaine de
+//     constats et trois écarts aux trois stades du circuit : un constaté sans
+//     explication, un expliqué qui attend qu'on tranche, un tranché en
+//     régularisation. L'écran des écarts a donc une ligne par colonne.
+//
+// TOUT EST FICTIF. Les écarts, les explications et les motifs sont inventés.
+// ---------------------------------------------------------------------------
+
+/**
+ * Un numéro de série au format du serveur : `CI-2026-00001`.
+ *
+ * Il **consomme** `sequence_document`, comme le fait `prochainNumero` dans
+ * `server/src/routes/_numeros.js`. Un numéro posé à la main sans toucher au
+ * compteur ferait que la première campagne créée par la route porterait un
+ * numéro déjà pris, et l'unicité la refuserait — exactement le genre de panne
+ * qu'on ne voit qu'en démonstration.
+ */
+async function numeroSerie(bd, prefixe, annee) {
+  const ligne = await bd.un(
+    `insert into sequence_document (prefixe, annee, dernier) values ($1, $2, 1)
+     on conflict (prefixe, annee) do update set dernier = sequence_document.dernier + 1
+     returning dernier`,
+    [prefixe, annee],
+  );
+  return `${prefixe}-${annee}-${String(ligne.dernier).padStart(5, '0')}`;
+}
+
+/** Les biens du périmètre d'une campagne, dans l'ordre du registre. */
+async function perimetreDeCampagne(bd, { structureId, siteId, dateArretee }) {
+  return bd.tous(
+    `select b.id, b.immatriculation, b.designation, b.quantite, b.etat,
+            b.detenteur_id, b.site_id, b.classement, b.suivi
+       from bien b
+      where b.structure_id = $1
+        and ($2::uuid is null or b.site_id = $2::uuid)
+        and b.etat <> 'reforme'
+        and b.date_acquisition <= $3::date
+      order by b.immatriculation nulls last, b.id`,
+    [structureId, siteId ?? null, dateArretee],
+  );
+}
+
+/** Un agent de la structure portant ce rôle, ou le premier agent actif. */
+function agentDe(agents, codeStructure, role) {
+  return agents.find((a) => a.codeStructure === codeStructure && a.roles.includes(role))
+    ?? agents.find((a) => a.codeStructure === codeStructure);
+}
+
+async function creerInventaires(bd, structures, sites, agents) {
+  // `mouvements` et `documents` : ce que le lot ajoute aux tables du socle,
+  // pour que le rapport de fin ne signale pas un faux écart de comptage.
+  const comptes = { campagnes: 0, agents: 0, constats: 0, ecarts: 0, mouvements: 0, documents: 0 };
+
+  const inserer = async (campagne) => {
+    comptes.campagnes += 1;
+    return bd.un(
+      `insert into campagne_inventaire (numero, libelle, structure_id, site_id, date_arretee,
+          statut, ouverte_le, ouverte_par, close_le, close_par, cree_par, cree_le, maj_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12) returning *`,
+      [campagne.numero, campagne.libelle, campagne.structure_id, campagne.site_id,
+        campagne.date_arretee, campagne.statut, campagne.ouverte_le ?? null,
+        campagne.ouverte_par ?? null, campagne.close_le ?? null, campagne.close_par ?? null,
+        campagne.cree_par, campagne.cree_le],
+    );
+  };
+
+  const designer = async (campagne, agent, qualite, designePar) => {
+    comptes.agents += 1;
+    return bd.un(
+      `insert into campagne_agent (campagne_id, agent_id, structure_id, qualite, designe_le, designe_par)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [campagne.id, agent.id, campagne.structure_id, qualite, campagne.cree_le, designePar.id],
+    );
+  };
+
+  const constater = async (campagne, bien, constat) => {
+    comptes.constats += 1;
+    return bd.un(
+      `insert into constat_inventaire (campagne_id, bien_id, structure_id, resultat,
+          quantite_comptee, etat_constate, detenteur_constate_id, site_constate_id,
+          observation, constate_par, constate_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+      [campagne.id, bien.id, campagne.structure_id, constat.resultat,
+        constat.quantite_comptee ?? null, constat.etat_constate ?? null,
+        constat.detenteur_constate_id ?? null, constat.site_constate_id ?? null,
+        constat.observation ?? null, constat.constate_par, constat.constate_le],
+    );
+  };
+
+  const ecarter = async (campagne, constat, bien, ecart) => {
+    comptes.ecarts += 1;
+    return bd.un(
+      `insert into ecart_inventaire (constat_id, campagne_id, bien_id, structure_id,
+          nature, ecart_quantite, statut, explication, explique_par, explique_le,
+          decision, motif_decision, tranche_par, tranche_le, document_id, mouvement_id, cree_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning *`,
+      [constat.id, campagne.id, bien.id, campagne.structure_id, ecart.nature,
+        ecart.ecart_quantite ?? null, ecart.statut, ecart.explication ?? null,
+        ecart.explique_par ?? null, ecart.explique_le ?? null, ecart.decision ?? null,
+        ecart.motif_decision ?? null, ecart.tranche_par ?? null, ecart.tranche_le ?? null,
+        ecart.document_id ?? null, ecart.mouvement_id ?? null, ecart.cree_le],
+    );
+  };
+
+  // --- 1. La campagne close, sans écart : CGIG, atelier technique ---------
+  const cgig = structures.parCode.get('CGIG');
+  const atelier = sites.find((s) => s.structure_id === cgig.id && s.nom.includes('Atelier'));
+  const comptableCgig = agentDe(agents, 'CGIG', 'comptable_matieres');
+  const magasinierCgig = agentDe(agents, 'CGIG', 'magasinier');
+  const chefCgig = agentDe(agents, 'CGIG', 'chef_structure');
+
+  const arreteeClose = jour(dateEntre(300, 290));
+  const close = await inserer({
+    numero: await numeroSerie(bd, 'CI', new Date(arreteeClose).getFullYear()),
+    libelle: `Inventaire annuel de l'atelier technique de la CGIG au ${arreteeClose}`,
+    structure_id: cgig.id,
+    site_id: atelier.id,
+    date_arretee: arreteeClose,
+    statut: 'close',
+    ouverte_le: dateEntre(289, 288),
+    ouverte_par: comptableCgig.id,
+    close_le: dateEntre(282, 280),
+    close_par: comptableCgig.id,
+    cree_par: comptableCgig.id,
+    cree_le: dateEntre(295, 292),
+  });
+  await designer(close, magasinierCgig, 'operateur', comptableCgig);
+  await designer(close, chefCgig, 'detenteur', comptableCgig);
+  await designer(close, comptableCgig, 'temoin', comptableCgig);
+
+  // Tout le périmètre est constaté conforme : c'est ce qui permet à la
+  // campagne d'être close (RG-023), et l'absence d'écart ce qui permet de ne
+  // rien avoir à trancher (RG-024).
+  const perimetreClose = await perimetreDeCampagne(bd, {
+    structureId: cgig.id, siteId: atelier.id, dateArretee: arreteeClose,
+  });
+  for (const bien of perimetreClose) {
+    await constater(close, bien, {
+      resultat: 'conforme',
+      quantite_comptee: bien.quantite,
+      etat_constate: bien.etat,
+      detenteur_constate_id: bien.detenteur_id,
+      site_constate_id: bien.site_id,
+      constate_par: magasinierCgig.id,
+      constate_le: dateEntre(288, 283),
+    });
+  }
+
+  // L'état d'inventaire, figé : la pièce que l'art. 120 fait établir.
+  comptes.documents += 1;
+  await bd.requete(
+    `insert into document (type, numero, structure_id, objet_type, objet_id, contenu,
+        signataire_id, signe_le, fige)
+     values ('etat_inventaire', $1, $2, 'campagne_inventaire', $3, $4, $5, $6, true)`,
+    [await numeroDocument(bd, 'INV', arreteeClose), cgig.id, String(close.id),
+      JSON.stringify({
+        campagne: close.numero,
+        libelle: close.libelle,
+        date_arretee: arreteeClose,
+        structure: cgig.nom,
+        site: atelier.nom,
+        avancement: {
+          biens_du_perimetre: perimetreClose.length,
+          constates: perimetreClose.length,
+          conformes: perimetreClose.length,
+          ecarts: 0, introuvables: 0, restants: 0, taux: 1,
+        },
+        ecarts: [],
+        conclusion: "Aucun écart constaté. L'atelier technique tient son registre à jour.",
+        mention: "État d'inventaire établi à la date arrêtée, décret 13/050 art. 120.",
+      }),
+      comptableCgig.id, dateEntre(282, 280)],
+  );
+
+  // --- 2. La campagne en cours : SGP, magasin central --------------------
+  const sgp = structures.parCode.get('SGP');
+  const magasin = sites.find((s) => s.structure_id === sgp.id && s.nom.includes('Magasin'));
+  const comptableSgp = agentDe(agents, 'SGP', 'comptable_matieres');
+  const magasinierSgp = agents.find(
+    (a) => a.codeStructure === 'SGP' && a.roles.includes('magasinier'),
+  );
+  const intendanteSgp = agentDe(agents, 'SGP', 'intendant');
+  const autreAgentSgp = agents.find(
+    (a) => a.codeStructure === 'SGP' && a.id !== magasinierSgp.id && a.id !== comptableSgp.id,
+  );
+
+  const arreteeEnCours = jour(dateEntre(40, 35));
+  const enCours = await inserer({
+    numero: await numeroSerie(bd, 'CI', new Date(arreteeEnCours).getFullYear()),
+    libelle: `Inventaire du magasin central de la Primature au ${arreteeEnCours}`,
+    structure_id: sgp.id,
+    site_id: magasin.id,
+    date_arretee: arreteeEnCours,
+    statut: 'en_cours',
+    ouverte_le: dateEntre(30, 28),
+    ouverte_par: comptableSgp.id,
+    cree_par: comptableSgp.id,
+    cree_le: dateEntre(34, 32),
+  });
+  await designer(enCours, magasinierSgp, 'operateur', comptableSgp);
+  await designer(enCours, intendanteSgp, 'detenteur', comptableSgp);
+  await designer(enCours, comptableSgp, 'temoin', comptableSgp);
+
+  const perimetreEnCours = await perimetreDeCampagne(bd, {
+    structureId: sgp.id, siteId: magasin.id, dateArretee: arreteeEnCours,
+  });
+
+  // Trois écarts, aux trois stades du circuit. Les biens sont pris en tête du
+  // périmètre pour que le jeu soit reproductible d'une exécution à l'autre.
+  const [pourEtat, pourDetenteur, pourQuantite, ...conformes] = perimetreEnCours;
+
+  // a) Un écart d'état, **constaté sans explication** : l'écran doit montrer
+  //    une ligne sur laquelle personne n'a encore rien dit.
+  const etatAutre = pourEtat.etat === 'hors_service' ? 'a_reparer' : 'hors_service';
+  const constatEtat = await constater(enCours, pourEtat, {
+    resultat: 'ecart',
+    quantite_comptee: pourEtat.quantite,
+    etat_constate: etatAutre,
+    detenteur_constate_id: pourEtat.detenteur_id,
+    site_constate_id: pourEtat.site_id,
+    observation: `Carter fendu et alimentation absente ; la fiche porte « ${pourEtat.etat} ».`,
+    constate_par: magasinierSgp.id,
+    constate_le: dateEntre(20, 18),
+  });
+  await ecarter(enCours, constatEtat, pourEtat, {
+    nature: 'etat',
+    statut: 'constate',
+    cree_le: dateEntre(20, 18),
+  });
+
+  // b) Un écart de détenteur, **expliqué**, qui attend qu'on tranche.
+  const constatDetenteur = await constater(enCours, pourDetenteur, {
+    resultat: 'ecart',
+    quantite_comptee: pourDetenteur.quantite,
+    etat_constate: pourDetenteur.etat,
+    detenteur_constate_id: autreAgentSgp.id,
+    site_constate_id: pourDetenteur.site_id,
+    observation: `Matériel trouvé en service chez ${autreAgentSgp.nom}, sans acte de transfert.`,
+    constate_par: magasinierSgp.id,
+    constate_le: dateEntre(19, 17),
+  });
+  await ecarter(enCours, constatDetenteur, pourDetenteur, {
+    nature: 'detenteur',
+    statut: 'explique',
+    explication:
+      `Le matériel a été prêté en urgence pour une mission de terrain, avec l'accord verbal de l'intendance. Aucun acte n'a été établi.`,
+    explique_par: intendanteSgp.id,
+    explique_le: dateEntre(14, 12),
+    cree_le: dateEntre(19, 17),
+  });
+
+  // c) Un écart de quantité, **tranché en régularisation** : la fiche a été
+  //    alignée sur le comptage, et le mouvement d'entrée jamais inscrit l'a
+  //    été. Qui a constaté n'a pas tranché (RG-026) : le magasinier a compté,
+  //    la comptable des matières a décidé.
+  const compte = Number(pourQuantite.quantite) + 2;
+  const constatQuantite = await constater(enCours, pourQuantite, {
+    resultat: 'ecart',
+    quantite_comptee: compte,
+    etat_constate: pourQuantite.etat,
+    detenteur_constate_id: pourQuantite.detenteur_id,
+    site_constate_id: pourQuantite.site_id,
+    observation: `Deux unités de plus que la fiche : comptage contradictoire fait deux fois.`,
+    constate_par: magasinierSgp.id,
+    constate_le: dateEntre(18, 16),
+  });
+  comptes.mouvements += 1;
+  const mouvementRegularise = await bd.un(
+    `insert into mouvement (bien_id, structure_id, type, quantite, date,
+        structure_source_code, motif, agent_id, cree_le)
+     values ($1, $2, 'entree', 2, $3, 'SGP', $4, $5, $6) returning id`,
+    [pourQuantite.id, sgp.id, jour(dateEntre(10, 9)),
+      `Régularisation d'inventaire ${enCours.numero} — écart de quantite — Deux unités reçues en 2026 sans bon d'entrée ; la pièce a été retrouvée au magasin.`,
+      comptableSgp.id, dateEntre(10, 9)],
+  );
+  await bd.requete(
+    'update bien set quantite = $2, maj_le = now() where id = $1',
+    [pourQuantite.id, compte],
+  );
+  await ecarter(enCours, constatQuantite, pourQuantite, {
+    nature: 'quantite',
+    ecart_quantite: 2,
+    statut: 'tranche',
+    explication:
+      "Deux unités reçues en fin d'exercice ont été rangées au magasin sans que le bon d'entrée soit saisi.",
+    explique_par: intendanteSgp.id,
+    explique_le: dateEntre(13, 11),
+    decision: 'regularisation',
+    motif_decision:
+      "Les deux unités sont physiquement présentes et leur origine est établie : la fiche est alignée sur le comptage et l'entrée est inscrite au registre.",
+    tranche_par: comptableSgp.id,
+    tranche_le: dateEntre(10, 9),
+    mouvement_id: mouvementRegularise.id,
+    cree_le: dateEntre(18, 16),
+  });
+
+  // Douze constats conformes : la campagne est engagée sans être finie, donc
+  // RG-023 refuse encore sa clôture — et l'écran le dit, motif compris.
+  for (const bien of conformes.slice(0, 12)) {
+    await constater(enCours, bien, {
+      resultat: 'conforme',
+      quantite_comptee: bien.quantite,
+      etat_constate: bien.etat,
+      detenteur_constate_id: bien.detenteur_id,
+      site_constate_id: bien.site_id,
+      constate_par: magasinierSgp.id,
+      constate_le: dateEntre(22, 8),
+    });
+  }
+
+  return comptes;
+}
+
+// ---------------------------------------------------------------------------
+// Le rapprochement contradictoire — décret 13/050 art. 123.
+//
+// Deux rapprochements, pour que les deux états du contradictoire se voient :
+//   — un **ouvert**, avec ses postes et **une seule** partie attestante : c'est
+//     là qu'on voit RG-027 mordre, et l'écran affiche son bouton de clôture
+//     grisé avec son motif ;
+//   — un **clos**, attesté des deux côtés, l'un avec réserve : une réserve
+//     n'empêche pas d'attester, elle est ce que le contradictoire conserve.
+//
+// `valeur_matieres` est calculée depuis le registre, comme le fait la route.
+// `valeur_generale` est inventée : la comptabilité générale n'est pas
+// interfacée, et ces chiffres ne sortent d'aucun système réel.
+// ---------------------------------------------------------------------------
+
+async function creerRapprochements(bd, structures, agents) {
+  const comptes = { rapprochements: 0, postes: 0, parties: 0 };
+
+  /** La valeur du poste en comptabilité des matières, comme la calcule la route. */
+  const valeurMatieres = async (structureId, categorieCode, periodeFin) => {
+    const ligne = await bd.un(
+      `with recursive famille as (
+          select code from categorie where code = $2
+          union all
+          select c.code from categorie c join famille f on c.parent_code = f.code
+        )
+        select coalesce(sum(b.valeur_acquisition), 0) as valeur
+          from bien b
+         where b.structure_id = $1
+           and b.categorie_code in (select code from famille)
+           and b.etat <> 'reforme'
+           and b.date_acquisition <= $3::date`,
+      [structureId, categorieCode, periodeFin],
+    );
+    return Number(ligne.valeur);
+  };
+
+  const ouvrir = async (r) => {
+    comptes.rapprochements += 1;
+    return bd.un(
+      `insert into rapprochement (numero, structure_id, periode_debut, periode_fin, statut,
+          conclusion, clos_le, clos_par, cree_par, cree_le)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+      [r.numero, r.structure_id, r.periode_debut, r.periode_fin, r.statut,
+        r.conclusion ?? null, r.clos_le ?? null, r.clos_par ?? null, r.cree_par, r.cree_le],
+    );
+  };
+
+  /**
+   * Pose un poste. `pourcentage` est la valeur en comptabilité **générale**
+   * exprimée en pourcentage de la valeur en comptabilité des matières : c'est
+   * ainsi qu'on fabrique un écart plausible sans inventer un montant de toutes
+   * pièces. `null` laisse la colonne vide — la comptabilité générale n'a pas
+   * encore communiqué ce poste.
+   */
+  const poser = async (r, categorieCode, pourcentage, explication) => {
+    comptes.postes += 1;
+    const matieres = await valeurMatieres(r.structure_id, categorieCode, r.periode_fin);
+    const generale = pourcentage === null
+      ? null
+      : Math.round(matieres * pourcentage / 10_000) * 100;
+    return bd.un(
+      `insert into rapprochement_poste (rapprochement_id, structure_id, categorie_code,
+          valeur_matieres, valeur_generale, explication)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [r.id, r.structure_id, categorieCode, matieres, generale, explication ?? null],
+    );
+  };
+
+  const partie = async (r, agent, qualite, atteste, reserve) => {
+    comptes.parties += 1;
+    return bd.un(
+      `insert into rapprochement_partie (rapprochement_id, structure_id, agent_id, qualite,
+          atteste_le, reserve)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [r.id, r.structure_id, agent.id, qualite, atteste ?? null, reserve ?? null],
+    );
+  };
+
+  const sgp = structures.parCode.get('SGP');
+  const cgig = structures.parCode.get('CGIG');
+  const comptableSgp = agentDe(agents, 'SGP', 'comptable_matieres');
+  const comptableCgig = agentDe(agents, 'CGIG', 'comptable_matieres');
+  // Le comptable général n'est pas un agent de la structure : il est mis à
+  // disposition par le ministère du Budget ou des Finances, et sa comptabilité
+  // est celle de l'État. C'est pourquoi la même personne figure des deux côtés.
+  const comptablePublic = agentDe(agents, 'SGP', 'comptable_public');
+
+  // --- 1. Ouvert, attesté d'un seul côté : RG-027 mord -------------------
+  const ouvert = await ouvrir({
+    numero: await numeroSerie(bd, 'RAP', 2026),
+    structure_id: sgp.id,
+    periode_debut: '2026-07-01',
+    periode_fin: '2026-09-30',
+    statut: 'ouvert',
+    cree_par: comptableSgp.id,
+    cree_le: dateEntre(50, 45),
+  });
+  // Deux postes confrontés, et un troisième encore muet du côté de la
+  // comptabilité générale : le rapprochement n'a pas fini de constater.
+  await poser(ouvert, 'INF', 94, 'Écart de 6 % : trois unités prises en charge après la clôture du trimestre.');
+  await poser(ouvert, 'MOB', 101, 'Écart de 1 % : arrondi de valorisation sur un lot de sièges.');
+  await poser(ouvert, 'CHA', null, "La comptabilité générale n'a pas encore communiqué la valeur du charroi.");
+  await partie(ouvert, comptableSgp, 'comptable_matieres', dateEntre(40, 38), null);
+  await partie(ouvert, comptablePublic, 'comptable_general', null, null);
+
+  // --- 2. Clos, attesté des deux côtés, dont un avec réserve ------------
+  const clos = await ouvrir({
+    numero: await numeroSerie(bd, 'RAP', 2026),
+    structure_id: cgig.id,
+    periode_debut: '2026-04-01',
+    periode_fin: '2026-06-30',
+    statut: 'clos',
+    conclusion:
+      "Écart résiduel de moins de 2 %, expliqué par deux prises en charge tardives. Le rapprochement est arrêté sous la réserve portée par le comptable général.",
+    clos_le: dateEntre(70, 68),
+    clos_par: comptableCgig.id,
+    cree_par: comptableCgig.id,
+    cree_le: dateEntre(100, 95),
+  });
+  await poser(clos, 'TEC', 98, 'Deux groupes électrogènes pris en charge le 2 juillet, hors période.');
+  await poser(clos, 'MOB', 100, 'Les deux comptabilités concordent.');
+  await partie(clos, comptableCgig, 'comptable_matieres', dateEntre(80, 78), null);
+  await partie(clos, comptablePublic, 'comptable_general', dateEntre(75, 73),
+    'Sous réserve de la valorisation des aménagements intérieurs, en cours de reprise.');
+
+  return comptes;
+}
+
+// ---------------------------------------------------------------------------
 // Le journal — quelques actions sensibles déjà tracées, pour que l'écran du
 // contrôle externe ne soit pas vide. Insertion seule (contrat §1, règle 2).
 // ---------------------------------------------------------------------------
@@ -1186,7 +1649,10 @@ async function rapporter(attendus) {
     'structure', 'site', 'agent', 'agent_role', 'categorie', 'parametre',
     'parametre_version', 'bien', 'mouvement', 'stock', 'fournisseur',
     'etat_besoin', 'ligne_besoin', 'dossier_achat', 'bon_commande',
-    'document', 'alerte', 'journal',
+    'document', 'alerte',
+    'campagne_inventaire', 'campagne_agent', 'constat_inventaire', 'ecart_inventaire',
+    'rapprochement', 'rapprochement_poste', 'rapprochement_partie',
+    'journal',
   ];
 
   console.log('\nLignes insérées');

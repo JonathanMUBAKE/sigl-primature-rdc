@@ -194,6 +194,11 @@ Numérotées, testables, contrôlées côté serveur. Chaque règle a son test.
 | RG-020 | Toute action sensible est journalisée avant d'être confirmée | Conception |
 | RG-021 | Un bien suivi en `lot` n'a pas d'immatriculation individuelle | IPSAS 45 §8 |
 | RG-022 | Une alerte ne change aucun état métier | Principe du projet |
+| RG-023 | Une campagne d'inventaire ne se clôt pas tant qu'un bien de son périmètre n'a pas été constaté | Décret 13/050 art. 120 |
+| RG-024 | Aucune campagne ne se clôt sur un écart non tranché | Décret 13/050 art. 120 |
+| RG-025 | Un écart ne se tranche qu'après l'explication du détenteur | Décret 13/050 art. 122 |
+| RG-026 | Qui constate un écart ne le tranche pas | Séparation des fonctions |
+| RG-027 | Un rapprochement n'est clos qu'attesté par les deux parties | Décret 13/050 art. 123 |
 
 ---
 
@@ -259,6 +264,59 @@ POST   /api/alertes/:id/traiter        RG-022
 GET    /api/tableau-de-bord            chiffres du poste de commande central
 GET    /api/journal                    contrôle externe seulement
 ```
+
+**L'inventaire physique et le rapprochement contradictoire** — décret 13/050 art. 120, 122 et 123.
+
+```
+GET    /api/campagnes-inventaire              ?statut=&structure=&q=&page=&parPage=
+POST   /api/campagnes-inventaire              { libelle, structure_id, site_id?, date_arretee }
+GET    /api/campagnes-inventaire/:id
+POST   /api/campagnes-inventaire/:id/agents   { agent_id, qualite }
+POST   /api/campagnes-inventaire/:id/ouvrir
+POST   /api/campagnes-inventaire/:id/constats { bien_id, resultat, quantite_comptee?, etat_constate?,
+                                                detenteur_constate_id?, site_constate_id?, observation? }
+POST   /api/campagnes-inventaire/:id/clore    { conclusion? }  RG-023, RG-024
+GET    /api/ecarts-inventaire                 ?statut=&nature=&campagne=&structure=&page=
+POST   /api/ecarts-inventaire/:id/expliquer   { explication }
+POST   /api/ecarts-inventaire/:id/trancher    { decision, motif_decision }  RG-025, RG-026
+
+GET    /api/rapprochements                    ?statut=&structure=&page=
+POST   /api/rapprochements                    { structure_id, periode_debut, periode_fin }
+GET    /api/rapprochements/:id
+POST   /api/rapprochements/:id/postes         { categorie_code, valeur_generale?, explication? }
+POST   /api/rapprochements/:id/parties        { agent_id, qualite }
+POST   /api/rapprochements/:id/attester       { reserve? }
+POST   /api/rapprochements/:id/clore          { conclusion }  RG-027
+```
+
+**Tout chiffre vient du serveur.** L'interface n'en recalcule aucun, et surtout pas un jugement de
+règle : si elle le refaisait, elle en détiendrait l'autorité et les deux jugements finiraient par
+diverger.
+
+- `GET /api/campagnes-inventaire/:id` rend `{ campagne, agents[], avancement, constats[], ecarts[],
+  clotures_possible }`. `avancement` porte `biens_du_perimetre`, `constates`, `conformes`, `ecarts`,
+  `introuvables`, `restants` et `taux` — **une proportion entre 0 et 1**, arrondie au dix-millième.
+  `conformes`, `ecarts` et `introuvables` comptent les **constats par résultat**, pas les lignes
+  d'écart : un constat « introuvable » ouvre un écart mais se compte en `introuvables`.
+- `clotures_possible` (campagne) et `cloture_possible` (rapprochement) rendent
+  `{ possible, code, motif }` : ce que RG-023, RG-024 ou RG-027 **répondraient** à une demande de
+  clôture. L'écran grise son bouton et affiche le motif tel quel.
+- `GET /api/rapprochements/:id` rend `{ rapprochement, postes[], parties[], totaux, cloture_possible }`.
+  `totaux` porte `valeur_matieres`, `valeur_generale`, `ecart` et
+  `postes_sans_comptabilite_generale` — un poste non encore saisi du côté de la comptabilité
+  générale ne compte pas pour zéro, il compte pour rien et le total le dit à part.
+- `valeur_matieres` d'un poste est **calculée** par le serveur depuis `bien`, catégorie et
+  descendance comprises ; elle n'est pas saisissable. `valeur_generale` est saisie, parce que la
+  comptabilité générale n'est pas interfacée.
+- Temps réel : les événements portent `objet` **au singulier**, `inventaire` (campagne, constat,
+  écart) et `rapprochement`.
+
+**Droits.** Écriture : `comptable_matieres` tient la campagne et le rapprochement ; `magasinier`,
+`comptable_matieres` et un agent désigné `detenteur` saisissent un constat ; l'explication d'un écart
+est portée par le détenteur du bien, un agent désigné `detenteur` ou le comptable des matières ;
+`trancher` est réservé au `comptable_matieres` et à la `logistique` ; seule une partie inscrite
+atteste un rapprochement, et pour sa seule qualité. Lecture : la garde `lecture()` ordinaire,
+portée RG-017.
 
 **Authentification** — pas de mot de passe à ce stade : un en-tête `X-Agent-Id` désigne l'agent
 courant et le serveur en déduit les rôles. Un écran de sélection de profil permet de changer

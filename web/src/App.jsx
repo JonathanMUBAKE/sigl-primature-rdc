@@ -9,6 +9,9 @@ import Besoins from './pages/Besoins.jsx'
 import Achats from './pages/Achats.jsx'
 import Receptions from './pages/Receptions.jsx'
 import Fournisseurs from './pages/Fournisseurs.jsx'
+import Inventaire from './pages/Inventaire.jsx'
+import Campagne from './pages/Campagne.jsx'
+import Rapprochements from './pages/Rapprochements.jsx'
 import Alertes from './pages/Alertes.jsx'
 import Journal from './pages/Journal.jsx'
 import ChoixProfil from './pages/ChoixProfil.jsx'
@@ -38,6 +41,12 @@ function Charpente() {
           <Route path="/receptions" element={<Receptions />} />
           <Route path="/receptions/:id" element={<Receptions />} />
           <Route path="/fournisseurs" element={<Fournisseurs />} />
+          {/* L'inventaire physique : la campagne est un POSTE DE TRAVAIL, donc
+              un écran plein, pas un tiroir par-dessus la liste. */}
+          <Route path="/inventaire" element={<Inventaire />} />
+          <Route path="/inventaire/:id" element={<Campagne />} />
+          <Route path="/rapprochements" element={<Rapprochements />} />
+          <Route path="/rapprochements/:id" element={<Rapprochements />} />
           <Route path="/alertes" element={<Alertes />} />
           <Route path="/alertes/:id" element={<Alertes />} />
           <Route path="/journal" element={<Journal />} />

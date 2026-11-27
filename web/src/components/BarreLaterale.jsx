@@ -8,6 +8,8 @@ import {
   ShoppingCart,
   PackageCheck,
   Truck,
+  ClipboardCheck,
+  Scale,
   TriangleAlert,
   ScrollText,
 } from 'lucide-react'
@@ -36,6 +38,10 @@ const GROUPES = [
   {
     titre: 'Contrôle',
     liens: [
+      // Décret 13/050 : l'inventaire à date fixe (art. 120) et le
+      // rapprochement contradictoire (art. 123) sont deux contrôles.
+      { to: '/inventaire', libelle: 'Inventaire', icone: ClipboardCheck },
+      { to: '/rapprochements', libelle: 'Rapprochements', icone: Scale },
       { to: '/alertes', libelle: 'Alertes', icone: TriangleAlert, compte: 'alertes' },
       { to: '/journal', libelle: 'Journal', icone: ScrollText },
     ],

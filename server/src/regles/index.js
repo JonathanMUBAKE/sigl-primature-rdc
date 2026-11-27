@@ -1,4 +1,4 @@
-// Les 22 règles de gestion de la section 3 du contrat, en un seul point d'entrée.
+// Les 27 règles de gestion de la section 3 du contrat, en un seul point d'entrée.
 // Toutes pures : elles reçoivent les données déjà chargées et rendent null ou
 // { code, message, champ }.
 
@@ -24,6 +24,11 @@ export { rg019 } from './rg-019.js';
 export { rg020, estSensible, ACTIONS_SENSIBLES } from './rg-020.js';
 export { rg021, suiviAttendu } from './rg-021.js';
 export { rg022 } from './rg-022.js';
+export { rg023, restantsAConstater } from './rg-023.js';
+export { rg024, ecartsNonTranches } from './rg-024.js';
+export { rg025 } from './rg-025.js';
+export { rg026 } from './rg-026.js';
+export { rg027, attestationsManquantes, QUALITES_PARTIE } from './rg-027.js';
 
 export { normaliserSeuils, procedurePourMontant, plancherFranchi, rangProcedure, PROCEDURES } from './seuils.js';
 export * from './roles.js';

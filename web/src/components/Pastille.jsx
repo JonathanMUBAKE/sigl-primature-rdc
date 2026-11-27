@@ -57,6 +57,24 @@ const TONS = {
   livre_partiel: 'attente',
   payable: 'succes',
   paye: 'neutre',
+  // campagne_inventaire.statut — une campagne close est une campagne aboutie
+  preparee: 'neutre',
+  en_cours: 'info',
+  close: 'succes',
+  // constat_inventaire.resultat
+  conforme: 'succes',
+  ecart: 'attente',
+  introuvable: 'critique',
+  // ecart_inventaire.decision — « perte » est une fin, pas un succès
+  regularisation: 'info',
+  perte: 'critique',
+  maintien: 'neutre',
+  // ecart_inventaire.statut et rapprochement.statut partagent « constaté » :
+  // les écrans passent alors `ton` eux-mêmes, car le même mot n'y pèse pas
+  // le même poids. Ici, le ton neutre de l'un et de l'autre.
+  constate: 'attente',
+  explique: 'attente',
+  tranche: 'succes',
   // structure.regime
   integre: 'info',
   autonome: 'attente',

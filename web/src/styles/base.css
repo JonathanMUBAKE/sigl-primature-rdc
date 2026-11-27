@@ -1446,6 +1446,32 @@ a.chiffre:hover {
 }
 
 /* ------------------------------------------------------------------ */
+/* Jauge (avancement d'une campagne d'inventaire)                      */
+/* ------------------------------------------------------------------ */
+
+/*
+  Une proportion se lit mieux qu'un pourcentage seul — mais le chiffre reste
+  écrit à côté : la barre ne porte jamais l'information à elle seule.
+  Un filet, pas une barre de couleur vive ; aucune ombre portée.
+*/
+.jauge {
+  display: block;
+  width: 100%;
+  min-width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--neutre-pale);
+  overflow: hidden;
+}
+
+.jauge-barre {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--duree-panneau) var(--courbe);
+}
+
+/* ------------------------------------------------------------------ */
 /* Choix de profil                                                     */
 /* ------------------------------------------------------------------ */
 

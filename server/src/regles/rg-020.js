@@ -3,10 +3,34 @@
 // garde-fou avant de confirmer quoi que ce soit.
 
 export const ACTIONS_SENSIBLES = [
-  'creation_bien', 'mouvement_bien', 'immatriculation', 'visa_besoin', 'examen_besoin',
+  // `immatriculation` a été retirée : aucune route ne l'a jamais émise. Le
+  // numéro d'immatriculation est attribué dans `POST /api/biens` et figure dans
+  // les valeurs « après » de l'action `creation_bien` — il est donc tracé, et
+  // une seconde ligne de journal l'aurait seulement redoublé. Une déclaration
+  // qu'aucun code n'émet donne l'illusion d'une garde qui n'existe pas.
+  'creation_bien', 'mouvement_bien', 'visa_besoin', 'examen_besoin',
   'accuse_besoin', 'cloture_besoin', 'sortie_stock', 'entree_stock', 'ouverture_dossier_achat',
   'emission_bon_commande', 'reception', 'prise_en_charge', 'paiement_possible',
   'emission_document', 'traitement_alerte', 'reforme', 'perte',
+  // Quatre actions qui manquaient depuis l'origine, découvertes par l'essai
+  // structurel de `rg-020.test.js` : la création d'un état de besoin, le
+  // réglage des seuils d'un article — un minimum porté de 40 à 5 la veille
+  // d'une rupture est précisément ce que le journal doit retenir —, la mise en
+  // liste noire d'un fournisseur et le blocage d'un découpage d'achat
+  // (RG-008). Toutes étaient déjà inscrites au journal par leurs routes ; elles
+  // n'étaient pas déclarées, donc la règle ne les gardait pas.
+  'creation_besoin', 'reglage_seuils_stock', 'liste_noire_fournisseur',
+  'blocage_decoupage_achat',
+  // L'inventaire physique et le rapprochement contradictoire. Ces douze
+  // actions étaient journalisées par leurs routes dès leur écriture, mais
+  // n'étaient pas **déclarées** ici : le garde-fou de la règle ne mordait donc
+  // pas sur elles. Une action sensible absente de cette liste est une action
+  // que le serveur a le droit de confirmer sans trace, et personne ne le voit.
+  'creation_campagne_inventaire', 'designation_agent_inventaire',
+  'ouverture_campagne_inventaire', 'constat_inventaire', 'cloture_campagne_inventaire',
+  'explication_ecart_inventaire', 'arbitrage_ecart_inventaire',
+  'ouverture_rapprochement', 'poste_rapprochement', 'partie_rapprochement',
+  'attestation_rapprochement', 'cloture_rapprochement',
 ];
 
 export function estSensible(action) {

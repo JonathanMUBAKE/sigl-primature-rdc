@@ -290,3 +290,98 @@ polluent. Constaté ici — un essai de la chaîne d'alerte rouge en groupe, ver
 nuit dernière devait donc quelque chose à l'ordonnancement. `npm test` passe désormais
 `--test-concurrency=1` : cinq secondes de plus, et un résultat reproductible. Corollaire pour la
 méthode du chantier : **deux agents ne lancent jamais `npm test` en même temps sur la même base.**
+
+---
+
+## 27 novembre 2026 — L'inventaire physique et le rapprochement contradictoire
+
+Le lot a été conduit par deux agents en parallèle, sur des périmètres de fichiers disjoints — la base
+et le serveur d'un côté, les écrans de l'autre — contre un contrat écrit **avant** leur ouverture,
+`docs/LOT-INVENTAIRE.md`. C'est la méthode du chantier, et c'est la troisième fois qu'elle tient :
+les seules coutures à reprendre l'ont été par le chef de projet, et aucune ne venait d'un désaccord
+sur la forme des données.
+
+**147 essais au début de la session, 239 à la fin, aucun échec.**
+
+### Ce que j'ai tranché seul, comme chef de projet
+
+**Le contrat du lot a été écrit avant d'ouvrir les agents, pas pendant.** Les tables, leurs colonnes,
+les cinq règles, les dix-sept routes et la forme exacte des réponses JSON y figuraient. Les deux
+agents ont donc codé contre le même texte sans se parler. Ce qui a dû être repris après coup est
+minime et tient en deux points : `avancement` est servi **à côté** de `campagne` et non dedans, et
+`taux` est une proportion entre 0 et 1 — deux ambiguïtés de mon propre contrat, que l'agent
+d'interface a trouvées en regardant l'écran plutôt qu'en supposant.
+
+**Les écarts ne sont pas comptés « aucun » tant que la liste n'est pas servie.** Pendant la seconde
+de chargement, la colonne des écarts non tranchés affichait « aucun » sur toutes les campagnes. Un
+zéro inventé pendant une seconde se lit comme une campagne saine. C'est la faute que ce chantier a
+déjà payée trois fois sous d'autres formes ; la colonne affiche un tiret tant qu'elle ne sait pas.
+
+**L'issue #1 n'est pas rouverte.** Elle a été close le 27 novembre comme n'étant pas un canal : les
+sept commentaires qui s'y trouvaient étaient tous de moi, postés faute d'autre identité, et trois
+décisions de conception y ont attendu un arbitre qui ne pouvait pas répondre. Y écrire de nouveau un
+compte rendu de session serait refaire exactement cette erreur. **Le registre des décisions est ce
+journal**, et il le reste tant que personne d'autre n'a d'identité d'écriture sur ce dépôt.
+
+### Le garde-fou de RG-020 ne gardait pas grand-chose
+
+Les douze actions de l'inventaire et du rapprochement étaient journalisées par leurs routes, mais
+n'étaient pas **déclarées** dans `ACTIONS_SENSIBLES`. La règle ne mordait donc pas sur elles : le
+serveur avait le droit de les confirmer sans trace, et rien ne l'aurait dit.
+
+Plutôt que d'ajouter les douze et de passer, j'ai écrit l'essai qui ferme la classe entière :
+`rg-020.test.js` lit les sources des routes, en extrait chaque action journalisée et la confronte à
+la liste déclarée, dans les deux sens. **Il a trouvé du premier coup quatre manques antérieurs à ce
+lot** — la création d'un état de besoin, le réglage des seuils d'un article, la mise en liste noire
+d'un fournisseur et le blocage d'un découpage d'achat (RG-008). La mise en liste noire d'un
+fournisseur hors de toute garde de journalisation était la plus fâcheuse des quatre.
+
+Il a trouvé aussi l'inverse : `immatriculation` était déclarée sensible et **aucune route ne l'a
+jamais émise**. Le numéro est attribué dans `POST /api/biens` et figure dans les valeurs « après » de
+`creation_bien` — il est donc tracé, et une seconde ligne de journal l'aurait redoublé. La
+déclaration morte est retirée : elle donnait l'illusion d'une garde qui n'existait pas.
+
+### Les décisions des agents que je fais miennes
+
+Elles sont posées chacune à un seul endroit et se renversent à peu de frais.
+
+1. **Le périmètre d'une campagne** est borné par la date arrêtée : les biens de la structure — et du
+   site s'il est désigné —, non réformés, acquis au plus tard à cette date. Sans cette borne, le
+   périmètre bougerait pendant la campagne et l'avancement ne voudrait rien dire (art. 120, « à dates
+   fixes »). Les biens à l'état `perdu` y restent : c'est à l'inventaire de confirmer qu'ils sont
+   toujours introuvables (RG-015).
+2. **Une régularisation n'a pas inventé un type de mouvement.** Elle constate qu'un acte a eu lieu
+   sans être inscrit, et c'est cet acte qu'elle inscrit : `entree`, `sortie`, `transfert`,
+   `declassement` ou `retour_maintenance` selon ce qui diffère. Vérifié au navigateur puis en base :
+   régulariser un écart de détenteur inscrit bien un `transfert` dont le motif nomme la campagne, et
+   la fiche du bien suit le comptage. Une régularisation sur un écart `introuvable` est refusée : on
+   ne régularise pas ce qu'on n'a pas vu.
+3. **Les clés étrangères des tables filles sont composites** `(structure_id, id)` : un constat ne
+   peut pas porter une structure différente de celle de sa campagne, même si une route se trompait.
+   C'est l'ADR-001 appliqué au lot.
+4. **`sigl_identite_agent()`**, fonction `security definer` bornée au nom, à la fonction et à
+   l'activité. Elle a été nécessaire : le comptable général n'est pas un agent de la structure
+   (art. 123, il est mis à disposition), donc la jointure de `rapprochement_partie` vers `agent`
+   effaçait purement et simplement la ligne de la partie. C'est le piège de la migration 040000 pris
+   par l'autre bout — là un `null` valait autorisation, ici une jointure interne valait effacement.
+5. **L'écriture passe par `sigl_ecriture_permise`**, non par `sigl_ecriture_chaine_achat` :
+   l'inventaire n'est pas de la dépense, le comptable public le contrôle sans le tenir.
+6. **Trois exigences ajoutées au contrat** : une campagne ne s'ouvre pas sans au moins un agent
+   désigné (art. 122 — sans opérateur ni détenteur, l'inventaire n'a personne) ; sa clôture émet un
+   `etat_inventaire` figé ; le motif est obligatoire pour les trois décisions, pas seulement pour le
+   maintien.
+
+### Ce qui est vérifié, et ce qui ne l'est pas
+
+Vérifié au navigateur, en clair et en sombre : les trois écrans, et **l'arbitrage d'un écart mené de
+bout en bout** — dialogue, décision, motif, puis contrôle en base que la fiche du bien a suivi, que
+le mouvement est inscrit avec son motif, et que le journal porte l'avant et l'après.
+
+Pas vérifié à l'écran : la clôture d'une campagne (le jeu de démonstration laisse dix-neuf biens à
+constater, et c'est volontaire), et le circuit complet du rapprochement. Les routes en sont
+éprouvées par les essais, l'écran ne l'est pas.
+
+Deux limites connues, dites franchement : `mouvement.agent_id` reste nul quand un agent du niveau
+central arbitre un écart d'une structure intégrée, parce que la clé étrangère est composite — le
+journal, lui, nomme toujours l'auteur ; et aucune campagne n'existe dans un établissement autonome,
+donc les écrans d'un comptable de l'ARMP sont vides sur ce lot.

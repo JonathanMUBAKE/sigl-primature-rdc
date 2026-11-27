@@ -178,6 +178,42 @@ export const api = {
   alerte: (id, o) => lire(`/alertes/${encodeURIComponent(id)}`, null, o),
   traiterAlerte: (id, corps, o) => poster(`/alertes/${encodeURIComponent(id)}/traiter`, corps, o),
 
+  // L'inventaire physique — décret 13/050, art. 120 et 122.
+  // `GET /api/campagnes-inventaire/:id` rend la campagne, ses agents désignés,
+  // son avancement, ses constats, ses écarts, et `clotures_possible` : ce que
+  // RG-023 et RG-024 répondraient, dit d'avance par le serveur. L'écran ne
+  // recalcule ni l'un ni l'autre.
+  campagnesInventaire: (p, o) => lire('/campagnes-inventaire', p, o),
+  campagneInventaire: (id, o) => lire(`/campagnes-inventaire/${encodeURIComponent(id)}`, null, o),
+  creerCampagneInventaire: (corps, o) => poster('/campagnes-inventaire', corps, o),
+  designerAgentInventaire: (id, corps, o) =>
+    poster(`/campagnes-inventaire/${encodeURIComponent(id)}/agents`, corps, o),
+  ouvrirCampagneInventaire: (id, o) =>
+    poster(`/campagnes-inventaire/${encodeURIComponent(id)}/ouvrir`, undefined, o),
+  constaterInventaire: (id, corps, o) =>
+    poster(`/campagnes-inventaire/${encodeURIComponent(id)}/constats`, corps, o),
+  cloreCampagneInventaire: (id, o) =>
+    poster(`/campagnes-inventaire/${encodeURIComponent(id)}/clore`, undefined, o),
+
+  ecartsInventaire: (p, o) => lire('/ecarts-inventaire', p, o),
+  expliquerEcartInventaire: (id, corps, o) =>
+    poster(`/ecarts-inventaire/${encodeURIComponent(id)}/expliquer`, corps, o),
+  trancherEcartInventaire: (id, corps, o) =>
+    poster(`/ecarts-inventaire/${encodeURIComponent(id)}/trancher`, corps, o),
+
+  // Le rapprochement contradictoire — décret 13/050, art. 123.
+  rapprochements: (p, o) => lire('/rapprochements', p, o),
+  rapprochement: (id, o) => lire(`/rapprochements/${encodeURIComponent(id)}`, null, o),
+  creerRapprochement: (corps, o) => poster('/rapprochements', corps, o),
+  ajouterPosteRapprochement: (id, corps, o) =>
+    poster(`/rapprochements/${encodeURIComponent(id)}/postes`, corps, o),
+  ajouterPartieRapprochement: (id, corps, o) =>
+    poster(`/rapprochements/${encodeURIComponent(id)}/parties`, corps, o),
+  attesterRapprochement: (id, corps, o) =>
+    poster(`/rapprochements/${encodeURIComponent(id)}/attester`, corps, o),
+  cloreRapprochement: (id, corps, o) =>
+    poster(`/rapprochements/${encodeURIComponent(id)}/clore`, corps, o),
+
   tableauDeBord: (o) => lire('/tableau-de-bord', null, o),
 
   journal: (p, o) => lire('/journal', p, o),

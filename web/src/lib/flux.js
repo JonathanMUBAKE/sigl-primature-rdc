@@ -37,6 +37,11 @@ const SUJETS = [
   'documents',
   'journal',
   'tableau-de-bord',
+  // L'inventaire et le rapprochement sont nommés AU SINGULIER par le serveur,
+  // qui les pose tels quels dans `objet` et dans `event:`. On s'y abonne sous
+  // ce nom-là : écouter « inventaires » ne rendrait qu'un flux muet.
+  'inventaire',
+  'rapprochement',
 ]
 
 /** Les sujets qu'un `objet` du serveur concerne. Le premier est le principal. */
@@ -60,6 +65,18 @@ const SUJETS_PAR_OBJET = {
   documents: ['documents'],
   journal: ['journal'],
   'tableau-de-bord': ['tableau-de-bord'],
+  // L'inventaire physique — campagne, constat, écart — et le rapprochement
+  // contradictoire. Le serveur publie `objet: 'inventaire'` et
+  // `objet: 'rapprochement'` ; les noms de table sont admis par prudence, pour
+  // qu'un événement nommé autrement ne tombe pas dans le vide.
+  inventaire: ['inventaire'],
+  campagne_inventaire: ['inventaire'],
+  constat_inventaire: ['inventaire'],
+  ecart_inventaire: ['inventaire'],
+  rapprochement: ['rapprochement'],
+  rapprochement_poste: ['rapprochement'],
+  rapprochement_partie: ['rapprochement'],
+  pv_perte: ['documents', 'inventaire'],
 }
 
 /** Tous les noms d'événement que le serveur peut poser dans `event:`. */

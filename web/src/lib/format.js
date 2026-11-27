@@ -223,6 +223,30 @@ const LIBELLES = {
   pv_perte: 'PV de perte',
   pv_reforme: 'PV de réforme',
   etat_inventaire: "État d'inventaire",
+  // campagne_inventaire.statut — décret 13/050, art. 120
+  preparee: 'Préparée',
+  en_cours: 'En cours',
+  close: 'Close',
+  // campagne_agent.qualite et rapprochement_partie.qualite
+  operateur: 'Opérateur',
+  detenteur: 'Détenteur',
+  temoin: 'Témoin',
+  comptable_general: 'Comptable général',
+  // constat_inventaire.resultat
+  conforme: 'Conforme',
+  ecart: 'Écart',
+  introuvable: 'Introuvable',
+  // ecart_inventaire.nature
+  quantite: 'Quantité',
+  etat: 'État',
+  localisation: 'Localisation',
+  // ecart_inventaire.statut
+  constate: 'Constaté',
+  explique: 'Expliqué',
+  tranche: 'Tranché',
+  // ecart_inventaire.decision — « perte » est déjà dit plus haut
+  regularisation: 'Régularisation',
+  maintien: 'Maintien en l’état',
   // rôles
   demandeur: 'Agent demandeur',
   chef_structure: 'Chef de structure',

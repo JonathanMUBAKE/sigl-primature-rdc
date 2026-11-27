@@ -18,6 +18,10 @@ export const PREFIXES = {
   pv_perte: 'PVP',
   pv_reforme: 'PVR',
   etat_inventaire: 'INV',
+  // Le lot « inventaire » : la campagne et le rapprochement contradictoire
+  // portent leur propre série, comme toute pièce numérotée du SIGL.
+  campagne_inventaire: 'CI',
+  rapprochement: 'RAP',
 };
 
 /** Le prochain numéro d'une série, pour l'année donnée : EB-2026-00017. */
