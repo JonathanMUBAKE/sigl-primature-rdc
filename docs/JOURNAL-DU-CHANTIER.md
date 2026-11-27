@@ -244,3 +244,49 @@ de l'ARMP, et seule la route l'en empêchait. Migration
 
 Vérifié au navigateur : la logistique centrale voit ses douze dossiers avec leur état de besoin et
 leur structure — « EB/2026/0015 · CAID » là où l'écran annonçait « Sans état de besoin rattaché ».
+
+---
+
+## 27 novembre 2026 — Le poste de commande taisait la consommation à ceux qui la règlent
+
+**Le défaut, et sa famille.** `GET /api/tableau-de-bord` lisait la consommation constatée dans le
+`journal` par une jointure placée dans sa propre requête. La politique `journal_lecture` de l'ADR-001
+réserve le journal au mode consolidation : il ne porte pas de `structure_id`, il ne peut donc pas
+être cloisonné par structure, et il est fermé plutôt qu'entrouvert. Jointe sous une transaction
+métier ordinaire, la table ne rendait rien. Mesuré, pas supposé : **zéro ligne sous la transaction
+d'un magasinier, deux cent quatre-vingt-une en consolidation.**
+
+Conséquence : pour le magasinier et le comptable des matières — précisément ceux qui ouvrent ce
+tableau pour savoir ce qui va manquer — les jours de couverture valaient toujours `null`, « rupture
+sous 30 jours » valait toujours zéro, et la liste des articles à surveiller était toujours vide. Une
+politique de sécurité correcte vidait une fonction métier de son contenu. Aucun essai ne le voyait,
+parce que les essais interrogeaient le serveur avec les droits qu'il faut, ceux de la logistique, de
+portée totale.
+
+C'est le troisième défaut de cette famille sur ce chantier, après les bons de commande et l'écran des
+seuils. La leçon est désormais une règle de travail : **pour chaque écran spécifié, se demander ce
+que le rôle a le droit de lire pour faire ce qu'on lui demande.** Un flux silencieux ressemble à un
+flux calme, et un zéro ressemble à un calme.
+
+**Ce qui a été décidé.** La lecture nommée qui corrigeait déjà l'écran des stocks est remontée dans
+`server/src/routes/_consommation.js`, et les deux appelants emploient la même — elle est consolidée
+mais strictement bornée : l'action `sortie_stock`, l'objet `stock`, et seulement les articles que le
+cloisonnement a déjà laissé passer en amont. Le journal dans son ensemble reste réservé au contrôle
+externe par `GET /api/journal`. L'alternative — donner un `structure_id` au journal et le cloisonner
+par la base — est plus propre sur le fond mais touche à la table d'audit elle-même, insérée par
+toutes les routes : elle mérite son propre lot, pas un passage en force dans celui-ci.
+
+**Et l'activité ne se tait plus.** Le même tableau comptait l'activité des derniers jours dans le
+journal, donc rendait zéro à tout agent de portée propre. Elle rend maintenant
+`disponible: false` avec son motif, plutôt qu'un zéro qui se lit comme un calme.
+
+Essai qui mord : `server/src/routes/tableau-de-bord-couverture.test.js` — le même article, la même
+consommation, lu par un magasinier et par la logistique : six jours de couverture des deux côtés.
+
+**La suite d'essais était dépendante de l'ordre, et personne ne le savait.** `node --test` exécute
+les fichiers en parallèle, autant que de processeurs. Or trois de ces fichiers écoutent le même canal
+`sigl_flux` et comptent les événements d'alerte sur une base unique : lancés ensemble, ils se
+polluent. Constaté ici — un essai de la chaîne d'alerte rouge en groupe, vert seul. Le vert de la
+nuit dernière devait donc quelque chose à l'ordonnancement. `npm test` passe désormais
+`--test-concurrency=1` : cinq secondes de plus, et un résultat reproductible. Corollaire pour la
+méthode du chantier : **deux agents ne lancent jamais `npm test` en même temps sur la même base.**

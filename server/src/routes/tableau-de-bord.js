@@ -10,10 +10,9 @@
 // établissements autonomes apparaissent au central en consolidé.
 
 import { lireTous, lireUn } from './_sql.js';
+import { FENETRE_CONSOMMATION_JOURS, consommationConstatee } from './_consommation.js';
 import { lecture, structuresDe } from './_droits.js';
 import { porteeTotale } from '../regles/roles.js';
-
-const FENETRE_CONSOMMATION_JOURS = 90;
 
 /** `and colonne in (...)` quand la portée est limitée, rien sinon. */
 function filtre(permises, colonne, params) {
@@ -209,23 +208,24 @@ export default async function routesTableauDeBord(app) {
     // --- Les stocks : seuils et ruptures prévisibles -------------------
     const pStock = [];
     const stocks = await lireTous(request, 
-      `with conso as (
-         select j.objet_id as stock_id,
-                sum(coalesce((j.apres->>'quantite_sortie')::numeric, 0)) / ${FENETRE_CONSOMMATION_JOURS}.0 as conso_jour
-           from journal j
-          where j.action = 'sortie_stock' and j.objet_type = 'stock'
-            and j.horodatage > now() - interval '${FENETRE_CONSOMMATION_JOURS} days'
-          group by j.objet_id
-       )
-       select st.id, st.designation, st.categorie_code, st.quantite, st.seuil_minimum, st.seuil_critique,
-              st.structure_id, s.code as structure_code, st.site_id, si.nom as site_nom,
-              coalesce(c.conso_jour, 0) as consommation_jour
+      `select st.id, st.designation, st.categorie_code, st.quantite, st.seuil_minimum, st.seuil_critique,
+              st.structure_id, s.code as structure_code, st.site_id, si.nom as site_nom
          from stock st
          join structure s on s.id = st.structure_id
          join site si on si.id = st.site_id
-         left join conso c on c.stock_id = st.id::text
         where true${filtre(permises, 'st.structure_id', pStock)}`,
       pStock,
+    );
+    // La consommation constatée ne se lit **pas** dans la requête ci-dessus.
+    // Le journal est réservé au mode consolidation par la politique
+    // `journal_lecture` : jointe ici, la table ne rendait rien sous une
+    // transaction métier, et le magasinier comme le comptable des matières —
+    // ceux qui ouvrent ce tableau pour savoir ce qui va manquer — n'avaient
+    // jamais un seul article à surveiller. La lecture passe donc par
+    // `_consommation.js`, nommée et bornée aux articles que le cloisonnement a
+    // déjà laissé passer.
+    const consommations = await consommationConstatee(
+      request, stocks.map((a) => String(a.id)), FENETRE_CONSOMMATION_JOURS,
     );
 
     const articlesCritiques = [];
@@ -234,7 +234,7 @@ export default async function routesTableauDeBord(app) {
     let enRupture = 0;
     let ruptureSous30 = 0;
     for (const a of stocks) {
-      const conso = Number(a.consommation_jour ?? 0);
+      const conso = Number(consommations.get(String(a.id))?.consommation_jour ?? 0);
       const jours_couverture = conso > 0 ? Math.floor(Number(a.quantite) / conso) : null;
       if (Number(a.quantite) === 0) enRupture += 1;
       else if (Number(a.quantite) <= Number(a.seuil_critique)) sousCritique += 1;
@@ -291,13 +291,20 @@ export default async function routesTableauDeBord(app) {
     const alertesAClasser = enCours.reduce((s, a) => s + a.condition_levee, 0);
 
     // --- L'activité des derniers jours ---------------------------------
-    const activite = await lireTous(request, 
-      `select date_trunc('day', j.horodatage)::date as jour, j.action, count(*)::int as nombre
-         from journal j
-        where j.horodatage > now() - ($1 || ' days')::interval
-        group by 1, 2 order by 1 desc, 3 desc`,
-      [String(jours)],
-    );
+    // Le journal entier n'est lisible qu'en consolidation (contrat §5 : le
+    // journal est réservé au contrôle externe). Un agent de portée propre
+    // obtenait donc une activité vide, sans que rien ne le dise — un zéro qui
+    // ressemble à un calme. On le dit maintenant, plutôt que de le taire.
+    const journalLisible = porteeTotale(request.agent);
+    const activite = journalLisible
+      ? await lireTous(request, 
+        `select date_trunc('day', j.horodatage)::date as jour, j.action, count(*)::int as nombre
+           from journal j
+          where j.horodatage > now() - ($1 || ' days')::interval
+          group by 1, 2 order by 1 desc, 3 desc`,
+        [String(jours)],
+      )
+      : [];
     const activiteParJour = new Map();
     for (const l of activite) {
       const cle = String(l.jour).slice(0, 10);
@@ -408,6 +415,10 @@ export default async function routesTableauDeBord(app) {
       },
       activite: {
         jours,
+        disponible: journalLisible,
+        motif: journalLisible
+          ? null
+          : 'Le journal est réservé à la lecture consolidée : votre profil ne le lit pas.',
         par_jour: [...activiteParJour.values()],
         total: activite.reduce((s, l) => s + l.nombre, 0),
         lien: '/api/journal',

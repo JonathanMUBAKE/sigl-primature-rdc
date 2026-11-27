@@ -10,7 +10,7 @@
     "dev:web": "vite --config web/vite.config.js",
     "build": "vite build --config web/vite.config.js",
     "start": "node server/src/index.js",
-    "test": "node --test server/src/**/*.test.js",
+    "test": "node --test --test-concurrency=1 server/src/**/*.test.js",
     "seed": "node server/seed/index.js"
   },
   "dependencies": {
