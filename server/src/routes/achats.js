@@ -14,7 +14,7 @@
 
 import { enEcriture, enLecture, lireTous, lireUn } from './_sql.js';
 import {
-  ecriture, lecture, structuresDe, verifierLecture, viser,
+  ecriture, lecture, structuresDe, verifierLecture, verifierLectureStricte, viser,
 } from './_droits.js';
 import { estCentral } from '../regles/roles.js';
 import {
@@ -124,18 +124,19 @@ function fournisseurVu(ligne) {
  * un achat du niveau central, qui n'appartient à aucune structure : il se lit
  * par les rôles centraux et les portées élargies, pas par une cellule.
  *
- * Le filtre porte sur `e.structure_id`, que le RLS a déjà réduit à la portée de
- * la session : une structure hors portée rend `null`, donc la ligne tombe.
- * L'alignement est volontaire — la base filtre, la clause le dit.
+ * Le filtre porte sur `bc.structure_id`, inscrit sur la ligne. Il portait
+ * auparavant sur `e.structure_id`, au bout d'une jointure externe vers une
+ * table cloisonnée : une structure hors portée rendait `null`, et un `null` ne
+ * se distingue pas d'une absence de cloisonnement — le contrôle s'effaçait
+ * exactement là où il devait mordre. Voir la migration 20261127040000.
  */
 async function clausePerimetreBons(request, params) {
   const permises = await structuresDe(request);
   if (permises === null) return ''; // portée totale : lecture consolidée.
-  const central = estCentral(request.agent) ? ' or d.etat_besoin_id is null' : '';
-  if (permises.length === 0) return central ? ` and (false${central})` : ' and false';
+  if (permises.length === 0) return ' and false';
   const places = permises.map((_, i) => `$${params.length + i + 1}`).join(', ');
   params.push(...permises);
-  return ` and (e.structure_id in (${places})${central})`;
+  return ` and bc.structure_id in (${places})`;
 }
 
 export default async function routesAchats(app) {
@@ -170,14 +171,14 @@ export default async function routesAchats(app) {
     }
     const total = await lireUn(request, `select count(*)::int as n from dossier_achat d ${ou}`, params);
     const donnees = await lireTous(request, 
-      `select d.*, e.numero as etat_besoin_numero, e.structure_id,
+      `select d.*, e.numero as etat_besoin_numero,
               s.code as structure_code, s.nom as structure_nom,
               (select count(*)::int from bon_commande bc where bc.dossier_id = d.id) as nombre_bons,
               (select coalesce(sum(bc.montant), 0) from bon_commande bc where bc.dossier_id = d.id) as montant_commande,
               extract(day from now() - d.cree_le)::int as anciennete_jours
          from dossier_achat d
          left join etat_besoin e on e.id = d.etat_besoin_id
-         left join structure s on s.id = e.structure_id
+         join structure s on s.id = d.structure_id
          ${ou}
         order by d.cree_le desc
         limit $${params.length + 1} offset $${params.length + 2}`,
@@ -195,7 +196,7 @@ export default async function routesAchats(app) {
     schema: { params: schemaIdParam },
   }, async (request) => {
     const dossier = await lireUn(request, 
-      `select d.*, e.numero as etat_besoin_numero, e.structure_id
+      `select d.*, e.numero as etat_besoin_numero
          from dossier_achat d left join etat_besoin e on e.id = d.etat_besoin_id
         where d.id = $1`,
       [request.params.id],
@@ -353,9 +354,19 @@ export default async function routesAchats(app) {
         },
       });
       const dossier = await lireUn(request, 
-        `insert into dossier_achat (numero, etat_besoin_id, objet, montant_estime, procedure, statut, seuils_appliques)
-         values ($1, $2, $3, $4, $5, 'ouvert', $6) returning *`,
-        [numero, corps.etat_besoin_id ?? null, corps.objet, corps.montant_estime, procedure, JSON.stringify(seuils)],
+        `insert into dossier_achat (numero, etat_besoin_id, structure_id, objet, montant_estime, procedure, statut, seuils_appliques)
+         values ($1, $2, $3, $4, $5, $6, 'ouvert', $7) returning *`,
+        [
+          numero, corps.etat_besoin_id ?? null,
+          // Le rattachement, dit ici et non déduit plus tard d'une jointure.
+          // Un dossier motivé par un état de besoin relève de la structure qui
+          // a exprimé le besoin ; un achat ouvert sans état de besoin est un
+          // achat du niveau central, et relève de la structure de l'agent qui
+          // l'ouvre. Dans les deux cas la structure est connue à l'écriture :
+          // c'est le seul moment où elle l'est à coup sûr.
+          besoin?.structure_id ?? request.agent.structure_id,
+          corps.objet, corps.montant_estime, procedure, JSON.stringify(seuils),
+        ],
       );
       // L'état de besoin passe en achat pour ses lignes d'achat : le reste du
       // besoin, servi sur stock, n'attend pas ce dossier.
@@ -432,7 +443,7 @@ export default async function routesAchats(app) {
               exists (select 1 from document c
                        where c.type = 'certificat_prise_en_charge'
                          and c.objet_type = 'bon_commande' and c.objet_id = bc.id::text) as pris_en_charge,
-              e.structure_id, e.numero as etat_besoin_numero
+              e.numero as etat_besoin_numero
          ${DEPUIS}
          ${ou}
         order by bc.emis_le desc
@@ -486,8 +497,7 @@ export default async function routesAchats(app) {
     },
   }, async (request, reply) => {
     const dossier = await lireUn(request, 
-      `select d.*, e.structure_id from dossier_achat d
-         left join etat_besoin e on e.id = d.etat_besoin_id where d.id = $1`,
+      `select d.* from dossier_achat d where d.id = $1`,
       [request.body.dossier_id],
     );
     if (!dossier) throw nonTrouve("Ce dossier d'achat");
@@ -587,10 +597,9 @@ export default async function routesAchats(app) {
     schema: { params: schemaIdParam },
   }, async (request) => {
     const bon = await lireUn(request, 
-      `select bc.*, d.numero as dossier_numero, e.structure_id
+      `select bc.*, d.numero as dossier_numero
          from bon_commande bc
          join dossier_achat d on d.id = bc.dossier_id
-         left join etat_besoin e on e.id = d.etat_besoin_id
         where bc.id = $1`,
       [request.params.id],
     );
@@ -599,7 +608,7 @@ export default async function routesAchats(app) {
     // comptable public, ce périmètre est l'ensemble des structures intégrées :
     // sa fonction est transversale, mais elle s'arrête à la frontière d'un
     // établissement autonome, qui a son propre comptable public.
-    await verifierLecture(request, bon.structure_id);
+    await verifierLectureStricte(request, bon.structure_id, 'Ce bon de commande');
 
     // RG-011 : aucun paiement marqué possible sans certificat de prise en charge.
     const certificat = await lireUn(request, 

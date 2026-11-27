@@ -112,3 +112,46 @@ l'écran des stocks — et avec elle les jours de couverture, la date de rupture
 criticité « rupture prévue ». Corrigé par une lecture consolidée nommée et strictement bornée (une
 seule action, les seuls articles déjà filtrés par la sécurité au niveau des lignes), commentée sur
 place. `GET /api/journal` reste réservé au contrôle externe.
+
+---
+
+## 27 novembre 2026 — Un contrôle de périmètre lu au bout d'une jointure externe
+
+**Le constat.** La route qui marque un bon de commande payable contrôlait le périmètre sur une
+structure lue ainsi : `bon_commande` → `dossier_achat` → `left join etat_besoin`. Or `etat_besoin`
+est cloisonnée par la sécurité au niveau des lignes. Quand le bon relevait d'un établissement
+autonome, la base masquait l'état de besoin, la jointure rendait `null`, et `verifierLecture` — qui
+sort sans rien vérifier sur une structure vide — laissait passer. La route répondait ensuite
+« certificat manquant » (RG-011), faute de voir un certificat qui existait bel et bien chez l'ARMP.
+
+Trois symptômes pour une seule cause : le contrôle s'effaçait **exactement** dans le cas où il
+devait mordre, le message d'erreur désignait le mauvais coupable, et l'essai rouge accusait RG-011
+alors que le défaut était dans RG-017.
+
+**La règle qu'on en tire.** Un contrôle de sécurité ne se lit pas au bout d'une jointure externe vers
+une table cloisonnée. La base a le droit de rendre `null`, et un `null` ne se distingue pas d'une
+absence de cloisonnement : l'erreur de lecture vaut alors autorisation, ce qui est l'inverse de ce
+qu'on attend d'un contrôle. Le rattachement se résout **à l'écriture**, seul moment où il est connu
+à coup sûr, et s'inscrit sur la ligne.
+
+**Ce qui a été fait.** Migration `supabase/migrations/20261127040000_perimetre_achats.sql` :
+`dossier_achat` et `bon_commande` portent leur propre `structure_id`, `not null`, avec reprise de
+l'existant et refus d'appliquer la migration si une ligne reste sans rattachement — mieux vaut un
+déploiement arrêté qu'un contrôle muet. Un déclencheur `sigl_rattacher_chaine_achat()` le résout à
+l'insertion pour qui ne le fournit pas. Les lectures de périmètre de `achats.js` portent désormais
+sur la colonne de la ligne. `verifierLectureStricte` refuse un périmètre indéterminable au lieu de
+l'ignorer. Effet de bord voulu : la suppression d'un état de besoin (`on delete set null`) ne fait
+plus perdre au dossier son rattachement.
+
+**Un cas que les essais ont rattrapé, et c'est le bon signe.** Un dossier d'achat **peut** s'ouvrir
+sans état de besoin : c'est un achat du niveau central. L'ancienne clause de repli
+`or d.etat_besoin_id is null` n'était donc pas du code mort, et la supprimer a cassé sept essais.
+Un tel dossier relève de la structure de l'agent qui l'ouvre, et la route le dit maintenant
+explicitement. 139 essais, 139 passent.
+
+**Ce qui reste ouvert, et qui n'est pas à nous.** `dossier_achat` et `bon_commande` restent hors de
+`tables_cloisonnees` : leur isolation est tenue par la route, pas par la base — ce qui s'écarte de la
+règle posée dans `COLLABORATION.md`. Les y mettre maintenant changerait la réponse : la ligne
+devenant invisible, la route répondrait 404 au lieu du 403 / RG-017 que la spécification demande, et
+le comptable public perdrait l'explication « ce bon relève de l'ARMP, qui tient ses propres
+écritures ». C'est un arbitrage de conception, donc celui de ChatGPT. Signalé sur l'issue.
